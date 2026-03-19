@@ -12,7 +12,7 @@ inference:
   model: "C:/Users/Admin/Desktop/model/yolo11n.pt"
   device: "cpu"
   conf: 0.5
-  classes: [0]
+  classes: []
   preview: true
   preview_window: "HeliosNet"
 

@@ -339,6 +339,7 @@ class UltralyticsRunner(BaseRunner):
         try:
             self._model = YOLO(model_path)
             self._ready = True
+            self._names = getattr(self._model, "names", {}) or {}
             print(
                 f"[ultralytics] READY model={model_path} device={device} conf={conf} classes={classes}",
                 flush=True,
@@ -346,6 +347,7 @@ class UltralyticsRunner(BaseRunner):
         except Exception as e:
             print(f"[ultralytics] FAILED model={model_path} err={e}", flush=True)
             self._ready = False
+            self._names = {}
 
     def infer(self, frame: Any) -> list[dict]:
         if not self._ready or frame is None:
@@ -370,7 +372,10 @@ class UltralyticsRunner(BaseRunner):
             x1, y1, x2, y2 = box.tolist()
             conf = float(confs[i]) if confs is not None else 0.0
             cls = int(clss[i]) if clss is not None else -1
-            dets.append({"bbox": [x1, y1, x2, y2], "conf": conf, "cls": cls})
+            name = self._names.get(cls, str(cls)) if isinstance(self._names, dict) else str(cls)
+            dets.append(
+                {"bbox": [x1, y1, x2, y2], "conf": conf, "cls": cls, "label": name}
+            )
         return dets
 
 
@@ -431,13 +436,10 @@ class InferenceEngine(BaseService):
                 continue
             x1, y1, x2, y2 = [int(v) for v in bbox]
             cv2.rectangle(vis, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            label = None
-            if "label" in det and det["label"]:
-                label = det["label"]
-            else:
-                cls = det.get("cls", -1)
-                conf = det.get("conf", 0.0)
-                label = f"{cls}:{conf:.2f}"
+            cls = det.get("cls", -1)
+            conf = det.get("conf", 0.0)
+            name = det.get("label") or str(cls)
+            label = f"{name}:{conf:.2f}"
             cv2.putText(
                 vis,
                 label,

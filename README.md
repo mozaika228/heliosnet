@@ -14,47 +14,47 @@ Works offline. Syncs when connected. Self-coordinates via gossip.
 
 ```
 heliosnet/
-??? config/
-?   ??? settings.py          # All config dataclasses + energy profiles
-?   ??? config.example.yaml  # Sample deployment config
-?
-??? energy/
-?   ??? scheduler.py         # Battery monitoring + energy-aware profile switching
-?                              EnergyLevel: FULL / NORMAL / LOW / CRITICAL
-?
-??? ingest/
-?   ??? manager.py           # Multi-stream reader (RTSP/USB/file)
-?                              Adaptive FPS + resolution per energy profile
-?
-??? inference/
-?   ??? engine.py            # YOLO inference
-?                              Backends: Ultralytics | ONNX | GroundingDINO
-?                              Dynamic batching ready
-?
-??? tracker/
-?   ??? coordinator.py       # Simple IoU tracker
-?                              Track lifecycle: NEW -> ACTIVE -> LOST -> REMOVED
-?
-??? events/
-?   ??? store.py             # JSONL event store (offline-first)
-?   ??? processor.py         # Anomaly detection, count snapshots, event emission
-?
-??? distributed/
-?   ??? gossip.py            # UDP gossip protocol (stub)
-?                              Node discovery, model propagation, cluster state
-?
-??? sync/
-?   ??? engine.py            # Offline-first sync to central (stub)
-?                              States: OFFLINE -> ONLINE -> BACKOFF
-?
-??? observability/
-?   ??? metrics.py           # Prometheus metrics (stub)
-?
-??? core/
-?   ??? node.py              # Main orchestrator (wires everything together)
-?
-??? tests/
-    ??? test_core.py         # Async tests, no GPU/camera required
+|-- config/
+|   |-- settings.py          # All config dataclasses + energy profiles
+|   `-- config.example.yaml  # Sample deployment config
+|
+|-- energy/
+|   `-- scheduler.py         # Battery monitoring + energy-aware profile switching
+|                             # EnergyLevel: FULL / NORMAL / LOW / CRITICAL
+|
+|-- ingest/
+|   `-- manager.py           # Multi-stream reader (RTSP/USB/file)
+|                             # Adaptive FPS + resolution per energy profile
+|
+|-- inference/
+|   `-- engine.py            # YOLO inference
+|                             # Backends: Ultralytics | ONNX | GroundingDINO
+|                             # Dynamic batching ready
+|
+|-- tracker/
+|   `-- coordinator.py       # Simple IoU tracker
+|                             # Track lifecycle: NEW -> ACTIVE -> LOST -> REMOVED
+|
+|-- events/
+|   |-- store.py             # JSONL event store (offline-first)
+|   `-- processor.py         # Anomaly detection, count snapshots, event emission
+|
+|-- distributed/
+|   `-- gossip.py            # UDP gossip protocol (stub)
+|                             # Node discovery, model propagation, cluster state
+|
+|-- sync/
+|   `-- engine.py            # Offline-first sync to central (stub)
+|                             # States: OFFLINE -> ONLINE -> BACKOFF
+|
+|-- observability/
+|   `-- metrics.py           # Prometheus metrics (stub)
+|
+|-- core/
+|   `-- node.py              # Main orchestrator (wires everything together)
+|
+`-- tests/
+    `-- test_core.py         # Async tests, no GPU/camera required
 ```
 
 ---
