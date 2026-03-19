@@ -1,0 +1,66 @@
+node_id: "edge-001"
+
+ingest:
+  sources:
+    - "webcam:0"
+  max_fps: 15
+  loop_files: true
+  idle_sleep_ms: 10
+
+inference:
+  backend: "ultralytics"
+  model: "C:/Users/Admin/Desktop/model/yolo11n.pt"
+  device: "cpu"
+  conf: 0.5
+  classes: [0]
+  preview: true
+  preview_window: "HeliosNet"
+
+tracker:
+  iou_thr: 0.3
+  max_age: 15
+
+events:
+  rules:
+    - type: "count_threshold"
+      name: "crowd"
+      threshold: 3
+      prefer_tracks: true
+  store_path: "./data/events.jsonl"
+
+sync:
+  mode: "offline"
+  interval_sec: 60
+
+observability:
+  metrics: true
+
+energy:
+  profiles:
+    - level: "FULL"
+      threshold: 80
+      resolution: "1280x720"
+      fps: 30
+      batch: 8
+      sync_interval_sec: 30
+    - level: "NORMAL"
+      threshold: 40
+      resolution: "640x480"
+      fps: 20
+      batch: 4
+      sync_interval_sec: 60
+    - level: "LOW"
+      threshold: 15
+      resolution: "416x416"
+      fps: 10
+      batch: 2
+      sync_interval_sec: 300
+    - level: "CRITICAL"
+      threshold: 0
+      resolution: "320x240"
+      fps: 3
+      batch: 1
+      sync_interval_sec: 900
+
+runtime:
+  tick_ms: 10

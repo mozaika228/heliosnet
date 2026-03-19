@@ -1,31 +1,25 @@
-# HeliosNet Architecture (MVP)
+# HeliosNet Architecture
 
 ## Goals
-- Multi-stream real-time ingest (4-16 sources)
+- Multi-stream real-time ingest
 - Edge inference and tracking with low latency
 - Event extraction and local decisioning
 - Offline-first operation with delayed sync
 
-## High-Level Data Flow
-1. Ingest: RTSP/WebRTC/Files -> frame normalization
-2. Detect: YOLO (ONNX/TensorRT) -> detections
-3. Track: ByteTrack/BoT-SORT -> tracks
-4. Events: rules/metrics -> events/anomalies
-5. Edge bus: local routing + buffered sync
+## High-Level Flow
+1. Ingest -> frames
+2. Inference -> detections
+3. Tracker -> tracks
+4. Events -> event records
+5. Store + Sync
 
-## Core Services (Python MVP)
-- ingest: multi-stream reader, sync, backpressure
-- detect: model runner, batching, adaptive res
-- track: tracker integration, ReID hook
-- events: metrics, anomaly rules
-- edge_bus: local event store + sync
-
-## Runtime
-- scheduler: energy-aware prioritization
-- health: liveness/readiness, watchdog
-- observability: Prometheus metrics
-
-## Future (post-MVP)
-- distributed coordination (Rust: gossip/Raft)
-- federated/online learning
-- C++/CUDA optimization for Jetson
+## Modules
+- ingest/manager.py
+- inference/engine.py
+- tracker/coordinator.py
+- events/processor.py
+- events/store.py
+- sync/engine.py
+- distributed/gossip.py
+- energy/scheduler.py
+- core/node.py

@@ -1,6 +1,6 @@
 param(
-  [string]$Config = ".\configs\dev.yaml"
+  [string]$Config = ".\config\config.example.yaml"
 )
 
-$env:PYTHONPATH = ".\src"
-python -c "from heliosnet.app import run; run(r'$Config')"
+$env:PYTHONPATH = "."
+.\.venv\Scripts\python -m core.node $Config

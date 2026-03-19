@@ -1,19 +1,9 @@
 from __future__ import annotations
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 import time
-from typing import Iterable
 
-from heliosnet.runtime.scheduler import BaseService
-
-
-@dataclass
-class Event:
-    name: str
-    ts: float
-    payload: dict
+from core.service import BaseService
 
 
 def _center(bbox: list[float]) -> tuple[float, float]:
@@ -26,10 +16,35 @@ def _in_rect(cx: float, cy: float, rect: list[float]) -> bool:
     return x1 <= cx <= x2 and y1 <= cy <= y2
 
 
-def _iter_objects(item: dict, prefer_tracks: bool) -> Iterable[dict]:
+def _in_poly(cx: float, cy: float, poly: list[list[float]]) -> bool:
+    inside = False
+    n = len(poly)
+    if n < 3:
+        return False
+    j = n - 1
+    for i in range(n):
+        xi, yi = poly[i]
+        xj, yj = poly[j]
+        intersect = ((yi > cy) != (yj > cy)) and (
+            cx < (xj - xi) * (cy - yi) / (yj - yi + 1e-9) + xi
+        )
+        if intersect:
+            inside = not inside
+        j = i
+    return inside
+
+
+def _iter_objects(item: dict, prefer_tracks: bool):
     if prefer_tracks and item.get("tracks"):
         return item["tracks"]
     return item.get("detections", [])
+
+
+@dataclass
+class Event:
+    name: str
+    ts: float
+    payload: dict
 
 
 class CountThresholdRule:
@@ -50,9 +65,17 @@ class CountThresholdRule:
 
 
 class ZoneEntryRule:
-    def __init__(self, name: str, rect: list[float], prefer_tracks: bool, classes: list[int]):
+    def __init__(
+        self,
+        name: str,
+        rect: list[float] | None,
+        poly: list[list[float]] | None,
+        prefer_tracks: bool,
+        classes: list[int],
+    ):
         self.name = name
         self.rect = rect
+        self.poly = poly
         self.prefer_tracks = prefer_tracks
         self.classes = classes
 
@@ -66,12 +89,17 @@ class ZoneEntryRule:
             if not bbox or len(bbox) != 4:
                 continue
             cx, cy = _center(bbox)
-            if _in_rect(cx, cy, self.rect):
+            hit = False
+            if self.rect and len(self.rect) == 4:
+                hit = _in_rect(cx, cy, self.rect)
+            elif self.poly:
+                hit = _in_poly(cx, cy, self.poly)
+            if hit:
                 events.append(Event(self.name, time.time(), {"cx": cx, "cy": cy}))
         return events
 
 
-class EventsService(BaseService):
+class EventsProcessor(BaseService):
     def __init__(self, config, metrics):
         super().__init__("events")
         self.config = config
@@ -89,10 +117,15 @@ class EventsService(BaseService):
                     CountThresholdRule(name, threshold, prefer_tracks, classes)
                 )
             elif rtype == "zone_entry":
-                rect = [float(x) for x in rule.get("rect", [0, 0, 0, 0])]
-                if len(rect) == 4:
+                rect = None
+                poly = None
+                if "rect" in rule:
+                    rect = [float(x) for x in rule.get("rect", [0, 0, 0, 0])]
+                if "polygon" in rule:
+                    poly = [[float(a), float(b)] for a, b in rule.get("polygon", [])]
+                if (rect and len(rect) == 4) or (poly and len(poly) >= 3):
                     self._rules.append(
-                        ZoneEntryRule(name, rect, prefer_tracks, classes)
+                        ZoneEntryRule(name, rect, poly, prefer_tracks, classes)
                     )
 
     def handle(self, item) -> None:

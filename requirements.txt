@@ -4,3 +4,4 @@ numpy
 pydantic
 pyyaml
 prometheus-client
+ultralytics
