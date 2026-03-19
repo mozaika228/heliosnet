@@ -1,0 +1,6 @@
+# Minimal runtime deps (expand later)
+opencv-python
+numpy
+pydantic
+pyyaml
+prometheus-client
