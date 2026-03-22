@@ -3,7 +3,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 import time
 
+import numpy as np
+import cv2
+
 from core.service import BaseService
+
+try:
+    import supervision as sv
+except Exception:  # pragma: no cover - optional dependency
+    sv = None
 
 
 def _iou(a: list[float], b: list[float]) -> float:
@@ -90,20 +98,114 @@ class IoUTracker:
         ]
 
 
+class ByteTrackWrapper:
+    def __init__(self, cfg: dict) -> None:
+        if sv is None:
+            raise RuntimeError("supervision not available")
+        params = {}
+        for key in (
+            "track_activation_threshold",
+            "lost_track_buffer",
+            "minimum_matching_threshold",
+            "frame_rate",
+            "minimum_consecutive_frames",
+        ):
+            if key in cfg:
+                params[key] = cfg[key]
+        self._tracker = sv.ByteTrack(**params)
+
+    def update(self, dets: list[dict]) -> list[dict]:
+        if not dets:
+            return []
+        xyxy = np.array([d["bbox"] for d in dets], dtype=np.float32)
+        conf = np.array([d.get("conf", 0.0) for d in dets], dtype=np.float32)
+        cls = np.array([int(d.get("cls", -1)) for d in dets], dtype=int)
+        detections = sv.Detections(
+            xyxy=xyxy,
+            confidence=conf,
+            class_id=cls,
+        )
+        tracked = self._tracker.update_with_detections(detections)
+        if tracked is None or tracked.tracker_id is None:
+            return []
+        out = []
+        for i in range(len(tracked.xyxy)):
+            out.append(
+                {
+                    "track_id": int(tracked.tracker_id[i]),
+                    "bbox": tracked.xyxy[i].tolist(),
+                    "cls": int(tracked.class_id[i]) if tracked.class_id is not None else -1,
+                    "conf": float(tracked.confidence[i]) if tracked.confidence is not None else 0.0,
+                }
+            )
+        return out
+
+
 class TrackCoordinator(BaseService):
     def __init__(self, config, metrics):
         super().__init__("tracker")
         self.config = config
         self.metrics = metrics
         track_cfg = getattr(config, "tracker", {})
-        self._tracker = IoUTracker(
-            float(track_cfg.get("iou_thr", 0.3)),
-            int(track_cfg.get("max_age", 15)),
-        )
+        backend = str(track_cfg.get("backend", "iou")).lower()
+        self._tracker = None
+        self._preview = bool(track_cfg.get("preview", False))
+        self._preview_window = str(track_cfg.get("preview_window", "HeliosNet"))
+        if backend == "bytetrack":
+            try:
+                self._tracker = ByteTrackWrapper(track_cfg)
+                print("[tracker] ByteTrack enabled", flush=True)
+            except Exception as e:
+                print(f"[tracker] ByteTrack unavailable, fallback to IoU: {e}", flush=True)
+        if self._tracker is None:
+            self._tracker = IoUTracker(
+                float(track_cfg.get("iou_thr", 0.3)),
+                int(track_cfg.get("max_age", 15)),
+            )
 
     def handle(self, item) -> None:
         ts = float(item.get("ts", time.time()))
         dets = item.get("detections", [])
-        item["tracks"] = self._tracker.update(dets, ts)
+        label_map = {}
+        for d in dets:
+            if "label" in d and d["label"]:
+                label_map[int(d.get("cls", -1))] = d["label"]
+        if isinstance(self._tracker, IoUTracker):
+            tracks = self._tracker.update(dets, ts)
+        else:
+            tracks = self._tracker.update(dets)
+        for t in tracks:
+            cls = int(t.get("cls", -1))
+            if cls in label_map:
+                t["label"] = label_map[cls]
+        item["tracks"] = tracks
+        if self._preview and isinstance(item.get("frame"), np.ndarray):
+            self._show_preview(item.get("frame"), tracks, item.get("source_id", "source"))
         self.metrics.inc("frames_tracked")
         self.push(item)
+
+    def _show_preview(self, frame: np.ndarray, tracks: list[dict], source_id: str) -> None:
+        vis = frame.copy()
+        window = f"{self._preview_window}::{source_id}"
+        for t in tracks:
+            bbox = t.get("bbox")
+            if not bbox or len(bbox) != 4:
+                continue
+            x1, y1, x2, y2 = [int(v) for v in bbox]
+            cv2.rectangle(vis, (x1, y1), (x2, y2), (0, 200, 255), 2)
+            tid = t.get("track_id", -1)
+            name = t.get("label") or str(t.get("cls", -1))
+            label = f"{name}#{tid}"
+            cv2.putText(
+                vis,
+                label,
+                (x1, max(0, y1 - 5)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (0, 200, 255),
+                1,
+                cv2.LINE_AA,
+            )
+        cv2.imshow(window, vis)
+        if cv2.waitKey(1) & 0xFF == ord("q"):
+            raise SystemExit

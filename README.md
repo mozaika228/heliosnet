@@ -32,7 +32,7 @@ heliosnet/
 |                             # Dynamic batching ready
 |
 |-- tracker/
-|   `-- coordinator.py       # Simple IoU tracker
+|   `-- coordinator.py       # ByteTrack (via supervision) or IoU tracker
 |                             # Track lifecycle: NEW -> ACTIVE -> LOST -> REMOVED
 |
 |-- events/
@@ -88,6 +88,39 @@ python -m core.node config/config.yaml
 pytest tests/ -v
 ```
 
+### 6. Batch inference (optional)
+In `config/config.yaml`:
+```
+inference:
+  batch_size: 2
+  batch_timeout_ms: 20
+```
+
+### 7. Multi-stream sync (optional)
+In `config/config.yaml`:
+```
+ingest:
+  sync: true
+  sync_timeout_ms: 200
+```
+
+### 8. Track IDs and labels
+Enable tracker preview to see `label#track_id` per object:
+```
+tracker:
+  preview: true
+  preview_window: "HeliosNet"
+```
+
+### 9. Event store options
+In `config/config.yaml`:
+```
+events:
+  store_path: "./data/events.jsonl"
+  per_source_files: true
+  csv_path: "./data/events.csv"
+```
+
 ---
 
 ## Energy Profiles
@@ -109,11 +142,22 @@ Available at `http://<node>:9090/metrics`:
 |--------|------|-------------|
 | `heliosnet_frames_total` | Counter | Frames processed per stream |
 | `heliosnet_detections_total` | Counter | Detections per class/stream |
-| `heliosnet_inference_latency_ms` | Histogram | Inference time distribution |
-| `heliosnet_active_tracks` | Gauge | Live object tracks |
-| `heliosnet_battery_percent` | Gauge | Battery level |
-| `heliosnet_events_unsynced` | Gauge | Events pending sync |
-| `heliosnet_anomalies_total` | Counter | Anomaly events per rule |
+| `heliosnet_inference_latency_seconds` | Histogram | Inference latency distribution |
+| `heliosnet_objects_per_frame` | Gauge | Objects per frame (instant) |
+| `heliosnet_confidence_mean` | Gauge | Mean confidence per stream (EMA) |
+| `heliosnet_tracks_total` | Counter | Tracks updated |
+| `heliosnet_events_built_total` | Counter | Events built |
+| `heliosnet_events_written_total` | Counter | Events written |
+
+### Dashboard (Grafana)
+Start Prometheus + Grafana:
+```bash
+docker-compose up -d
+```
+Grafana: `http://localhost:3000` (admin/admin)
+
+Prometheus is mapped to `http://localhost:9091`.
+If `host.docker.internal` does not resolve, update `docker/prometheus/prometheus.yml`.
 
 ---
 

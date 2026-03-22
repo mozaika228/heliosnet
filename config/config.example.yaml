@@ -6,6 +6,8 @@ ingest:
   max_fps: 15
   loop_files: true
   idle_sleep_ms: 10
+  sync: true
+  sync_timeout_ms: 200
 
 inference:
   backend: "ultralytics"
@@ -13,12 +15,22 @@ inference:
   device: "cpu"
   conf: 0.5
   classes: []
-  preview: true
+  preview: false
   preview_window: "HeliosNet"
+  batch_size: 2
+  batch_timeout_ms: 20
 
 tracker:
+  backend: "bytetrack"
   iou_thr: 0.3
   max_age: 15
+  track_activation_threshold: 0.25
+  minimum_matching_threshold: 0.8
+  lost_track_buffer: 30
+  frame_rate: 30
+  minimum_consecutive_frames: 1
+  preview: true
+  preview_window: "HeliosNet"
 
 events:
   rules:
@@ -27,6 +39,8 @@ events:
       threshold: 3
       prefer_tracks: true
   store_path: "./data/events.jsonl"
+  per_source_files: true
+  csv_path: "./data/events.csv"
 
 sync:
   mode: "offline"
@@ -34,6 +48,7 @@ sync:
 
 observability:
   metrics: true
+  metrics_port: 9090
 
 energy:
   profiles:

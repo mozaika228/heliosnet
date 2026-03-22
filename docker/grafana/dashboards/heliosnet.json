@@ -1,0 +1,52 @@
+{
+  "title": "HeliosNet",
+  "schemaVersion": 37,
+  "version": 1,
+  "timezone": "browser",
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "FPS per source",
+      "targets": [
+        {
+          "expr": "rate(heliosnet_frames_total[1m])",
+          "legendFormat": "{{source_id}}"
+        }
+      ],
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Objects per second",
+      "targets": [
+        {
+          "expr": "rate(heliosnet_detections_total[1m])",
+          "legendFormat": "{{source_id}} {{label}}"
+        }
+      ],
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Inference latency p95 (s)",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(heliosnet_inference_latency_seconds_bucket[1m])) by (le))",
+          "legendFormat": "p95"
+        }
+      ],
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Confidence EMA",
+      "targets": [
+        {
+          "expr": "heliosnet_confidence_mean",
+          "legendFormat": "{{source_id}}"
+        }
+      ],
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 }
+    }
+  ]
+}

@@ -38,6 +38,10 @@ class Node:
     def __init__(self, config_path: str):
         self.config = load_config(config_path)
         self.metrics = Metrics()
+        obs_cfg = getattr(self.config, "observability", {})
+        if bool(obs_cfg.get("metrics", False)):
+            port = int(obs_cfg.get("metrics_port", 9090))
+            self.metrics.start_http(port)
 
         self.energy = EnergyScheduler(self.config.energy.profiles)
         self.ingest = IngestManager(self.config, self.metrics)
@@ -65,7 +69,11 @@ class Node:
         )
 
     def run(self) -> None:
-        self.scheduler.run()
+        try:
+            self.scheduler.run()
+        except KeyboardInterrupt:
+            import cv2
+            cv2.destroyAllWindows()
 
 
 def main() -> None:

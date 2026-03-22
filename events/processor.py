@@ -60,7 +60,17 @@ class CountThresholdRule:
             objs = [o for o in objs if int(o.get("cls", -1)) in self.classes]
         count = len(objs)
         if count >= self.threshold:
-            return [Event(self.name, time.time(), {"count": count})]
+            track_ids = [o.get("track_id") for o in objs if "track_id" in o]
+            class_ids = [int(o.get("cls", -1)) for o in objs if "cls" in o]
+            labels = [o.get("label") for o in objs if o.get("label")]
+            payload = {"count": count}
+            if track_ids:
+                payload["track_ids"] = track_ids
+            if class_ids:
+                payload["class_ids"] = class_ids
+            if labels:
+                payload["labels"] = labels
+            return [Event(self.name, time.time(), payload)]
         return []
 
 
@@ -95,7 +105,14 @@ class ZoneEntryRule:
             elif self.poly:
                 hit = _in_poly(cx, cy, self.poly)
             if hit:
-                events.append(Event(self.name, time.time(), {"cx": cx, "cy": cy}))
+                payload = {"cx": cx, "cy": cy}
+                if "track_id" in o:
+                    payload["track_id"] = o.get("track_id")
+                if "label" in o:
+                    payload["label"] = o.get("label")
+                if "cls" in o:
+                    payload["class_id"] = o.get("cls")
+                events.append(Event(self.name, time.time(), payload))
         return events
 
 
@@ -133,7 +150,14 @@ class EventsProcessor(BaseService):
         for rule in self._rules:
             events.extend(rule.apply(item))
         item["events"] = [
-            {"name": e.name, "ts": e.ts, "payload": e.payload} for e in events
+            {
+                "name": e.name,
+                "ts": e.ts,
+                "payload": e.payload,
+                "source_id": item.get("source_id"),
+                "group_id": item.get("group_id"),
+            }
+            for e in events
         ]
         self.metrics.inc("events_built")
         self.push(item)

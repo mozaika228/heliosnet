@@ -139,8 +139,12 @@ class IngestManager(BaseService):
         max_fps = int(ingest_cfg.get("max_fps", 0) or 0)
         self._idle_sleep_ms = int(ingest_cfg.get("idle_sleep_ms", 5))
         loop_files = bool(ingest_cfg.get("loop_files", True))
+        self._sync = bool(ingest_cfg.get("sync", False))
+        self._sync_timeout_ms = int(ingest_cfg.get("sync_timeout_ms", 200))
         self._sources = build_sources(sources, max_fps=max_fps, loop=loop_files)
         self._rr = 0
+        self._pending = {}
+        self._group_id = 0
 
     def handle(self, item) -> None:
         self.push(item)
@@ -148,6 +152,9 @@ class IngestManager(BaseService):
     def tick(self) -> None:
         if not self._sources:
             time.sleep(self._idle_sleep_ms / 1000.0)
+            return
+        if self._sync:
+            self._tick_sync()
             return
         tried = 0
         while tried < len(self._sources):
@@ -157,7 +164,41 @@ class IngestManager(BaseService):
             item = src.read()
             if item is None:
                 continue
-            self.metrics.inc("frames_in")
+            self.metrics.inc_frame(item.get("source_id", "source"))
             self.push(item)
             return
         time.sleep(self._idle_sleep_ms / 1000.0)
+
+    def _tick_sync(self) -> None:
+        # Try to read one frame per source and emit a synchronized group
+        for src in self._sources:
+            item = src.read()
+            if item is not None:
+                self._pending[src.cfg.source_id] = item
+
+        if len(self._pending) < len(self._sources):
+            time.sleep(self._idle_sleep_ms / 1000.0)
+            return
+
+        items = list(self._pending.values())
+        ts_values = [it.get("ts", 0) for it in items]
+        if ts_values and (max(ts_values) - min(ts_values)) * 1000.0 > self._sync_timeout_ms:
+            # drop oldest
+            oldest_id = None
+            oldest_ts = None
+            for sid, it in self._pending.items():
+                t = it.get("ts", 0)
+                if oldest_ts is None or t < oldest_ts:
+                    oldest_ts = t
+                    oldest_id = sid
+            if oldest_id is not None:
+                self._pending.pop(oldest_id, None)
+            time.sleep(self._idle_sleep_ms / 1000.0)
+            return
+
+        self._group_id += 1
+        for it in items:
+            it["group_id"] = self._group_id
+            self.metrics.inc_frame(it.get("source_id", "source"))
+            self.push(it)
+        self._pending = {}

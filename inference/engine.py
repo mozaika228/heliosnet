@@ -5,6 +5,7 @@ from typing import Any
 
 import numpy as np
 import cv2
+import time
 
 from core.service import BaseService
 
@@ -361,7 +362,9 @@ class UltralyticsRunner(BaseRunner):
         )
         if not results:
             return []
-        r = results[0]
+        return self._results_to_dets(results[0])
+
+    def _results_to_dets(self, r) -> list[dict]:
         if r.boxes is None or r.boxes.xyxy is None:
             return []
         boxes = r.boxes.xyxy.cpu().numpy()
@@ -372,11 +375,29 @@ class UltralyticsRunner(BaseRunner):
             x1, y1, x2, y2 = box.tolist()
             conf = float(confs[i]) if confs is not None else 0.0
             cls = int(clss[i]) if clss is not None else -1
-            name = self._names.get(cls, str(cls)) if isinstance(self._names, dict) else str(cls)
+            name = (
+                self._names.get(cls, str(cls))
+                if isinstance(self._names, dict)
+                else str(cls)
+            )
             dets.append(
                 {"bbox": [x1, y1, x2, y2], "conf": conf, "cls": cls, "label": name}
             )
         return dets
+
+    def infer_batch(self, frames: list[Any]) -> list[list[dict]]:
+        if not self._ready or not frames:
+            return []
+        results = self._model(
+            frames,
+            device=self._device,
+            conf=self._conf,
+            classes=self._classes if self._classes else None,
+            verbose=False,
+        )
+        if not results:
+            return []
+        return [self._results_to_dets(r) for r in results]
 
 
 class InferenceEngine(BaseService):
@@ -395,6 +416,24 @@ class InferenceEngine(BaseService):
         self._preview_window = str(inf_cfg.get("preview_window", "HeliosNet"))
         self._nms_iou = float(inf_cfg.get("nms_iou", 0.0))
         self._classes = [int(c) for c in inf_cfg.get("classes", [])]
+        self._batch_size = int(inf_cfg.get("batch_size", 1))
+        self._batch_timeout_ms = int(inf_cfg.get("batch_timeout_ms", 10))
+        self._queue: list[dict] = []
+        self._last_flush = time.time()
+
+        events_cfg = getattr(config, "events", {})
+        self._zone_shapes = []
+        for rule in events_cfg.get("rules", []):
+            if str(rule.get("type", "")).lower() != "zone_entry":
+                continue
+            if "rect" in rule:
+                rect = [float(x) for x in rule.get("rect", [0, 0, 0, 0])]
+                if len(rect) == 4:
+                    self._zone_shapes.append(("rect", rect))
+            if "polygon" in rule:
+                poly = [[float(a), float(b)] for a, b in rule.get("polygon", [])]
+                if len(poly) >= 3:
+                    self._zone_shapes.append(("poly", poly))
 
         if backend == "onnxruntime":
             self._runner = OnnxRuntimeRunner(
@@ -417,19 +456,68 @@ class InferenceEngine(BaseService):
             self._runner = StubRunner()
 
     def handle(self, item) -> None:
+        if self._batch_size <= 1:
+            self._process_single(item)
+            return
+        self._queue.append(item)
+        if len(self._queue) >= self._batch_size:
+            self._flush()
+
+    def tick(self) -> None:
+        if self._batch_size <= 1:
+            return
+        now = time.time()
+        if self._queue and (now - self._last_flush) * 1000.0 >= self._batch_timeout_ms:
+            self._flush()
+
+    def _flush(self) -> None:
+        batch = self._queue[: self._batch_size]
+        self._queue = self._queue[self._batch_size :]
+        frames = [it.get("frame") for it in batch]
+        dets_list: list[list[dict]] = []
+        if hasattr(self._runner, "infer_batch"):
+            t0 = time.time()
+            dets_list = self._runner.infer_batch(frames)
+            self.metrics.observe_inference(time.time() - t0)
+        if not dets_list or len(dets_list) != len(batch):
+            dets_list = []
+            for f in frames:
+                t0 = time.time()
+                dets_list.append(self._runner.infer(f))
+                self.metrics.observe_inference(time.time() - t0)
+        for item, dets in zip(batch, dets_list):
+            self._finalize_item(item, dets)
+        self._last_flush = time.time()
+
+    def _process_single(self, item: dict) -> None:
         frame = item.get("frame")
+        t0 = time.time()
         dets = self._runner.infer(frame)
+        self.metrics.observe_inference(time.time() - t0)
+        self._finalize_item(item, dets)
+
+    def _finalize_item(self, item: dict, dets: list[dict]) -> None:
+        frame = item.get("frame")
+        source_id = item.get("source_id", "source")
         if self._classes and dets:
             dets = [d for d in dets if int(d.get("cls", -1)) in self._classes]
         dets = _nms(dets, self._nms_iou)
         item["detections"] = dets
         if self._preview and isinstance(frame, np.ndarray):
-            self._show_preview(frame, dets)
-        self.metrics.inc("frames_detected")
+            self._show_preview(frame, dets, source_id)
+        self.metrics.add_detections(source_id, dets)
         self.push(item)
 
-    def _show_preview(self, frame: np.ndarray, detections: list[dict]) -> None:
+    def _show_preview(self, frame: np.ndarray, detections: list[dict], source_id: str) -> None:
         vis = frame.copy()
+        window = f"{self._preview_window}::{source_id}"
+        for shape_type, data in self._zone_shapes:
+            if shape_type == "rect":
+                x1, y1, x2, y2 = [int(v) for v in data]
+                cv2.rectangle(vis, (x1, y1), (x2, y2), (255, 255, 0), 2)
+            elif shape_type == "poly":
+                pts = np.array(data, dtype=np.int32)
+                cv2.polylines(vis, [pts], True, (255, 255, 0), 2)
         for det in detections:
             bbox = det.get("bbox")
             if not bbox or len(bbox) != 4:
@@ -450,6 +538,6 @@ class InferenceEngine(BaseService):
                 1,
                 cv2.LINE_AA,
             )
-        cv2.imshow(self._preview_window, vis)
+        cv2.imshow(window, vis)
         if cv2.waitKey(1) & 0xFF == ord("q"):
             raise SystemExit
