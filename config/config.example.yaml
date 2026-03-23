@@ -51,6 +51,7 @@ observability:
   metrics_port: 9090
 
 energy:
+  simulated_percent: 55
   profiles:
     - level: "FULL"
       threshold: 80

@@ -130,10 +130,11 @@ def build_sources(entries: list[str], max_fps: int, loop: bool) -> list[BaseSour
 
 
 class IngestManager(BaseService):
-    def __init__(self, config, metrics):
+    def __init__(self, config, metrics, energy=None):
         super().__init__("ingest")
         self.config = config
         self.metrics = metrics
+        self.energy = energy
         ingest_cfg = getattr(config, "ingest", {})
         sources = ingest_cfg.get("sources", [])
         max_fps = int(ingest_cfg.get("max_fps", 0) or 0)
@@ -145,6 +146,8 @@ class IngestManager(BaseService):
         self._rr = 0
         self._pending = {}
         self._group_id = 0
+        self._resize_hw = None
+        self._last_profile = None
 
     def handle(self, item) -> None:
         self.push(item)
@@ -153,6 +156,7 @@ class IngestManager(BaseService):
         if not self._sources:
             time.sleep(self._idle_sleep_ms / 1000.0)
             return
+        self._apply_energy()
         if self._sync:
             self._tick_sync()
             return
@@ -164,6 +168,8 @@ class IngestManager(BaseService):
             item = src.read()
             if item is None:
                 continue
+            if self._resize_hw:
+                item["frame"] = cv2.resize(item["frame"], self._resize_hw, interpolation=cv2.INTER_LINEAR)
             self.metrics.inc_frame(item.get("source_id", "source"))
             self.push(item)
             return
@@ -174,6 +180,8 @@ class IngestManager(BaseService):
         for src in self._sources:
             item = src.read()
             if item is not None:
+                if self._resize_hw:
+                    item["frame"] = cv2.resize(item["frame"], self._resize_hw, interpolation=cv2.INTER_LINEAR)
                 self._pending[src.cfg.source_id] = item
 
         if len(self._pending) < len(self._sources):
@@ -202,3 +210,21 @@ class IngestManager(BaseService):
             self.metrics.inc_frame(it.get("source_id", "source"))
             self.push(it)
         self._pending = {}
+
+    def _apply_energy(self) -> None:
+        if self.energy is None:
+            return
+        profile = self.energy.current_profile()
+        if profile is None or profile == self._last_profile:
+            return
+        self._last_profile = profile
+        # update FPS
+        for src in self._sources:
+            src.cfg.max_fps = int(profile.fps)
+        # update resolution
+        if profile.resolution and "x" in profile.resolution:
+            try:
+                w, h = profile.resolution.lower().split("x")
+                self._resize_hw = (int(w), int(h))
+            except Exception:
+                self._resize_hw = None

@@ -44,12 +44,13 @@ class Node:
             self.metrics.start_http(port)
 
         self.energy = EnergyScheduler(self.config.energy.profiles)
-        self.ingest = IngestManager(self.config, self.metrics)
+        self.energy.update_battery(self.config.energy.simulated_percent)
+        self.ingest = IngestManager(self.config, self.metrics, self.energy)
         self.inference = InferenceEngine(self.config, self.metrics)
         self.tracker = TrackCoordinator(self.config, self.metrics)
         self.events = EventsProcessor(self.config, self.metrics)
         self.store = EventStore(self.config, self.metrics)
-        self.sync = SyncEngine(self.config, self.metrics)
+        self.sync = SyncEngine(self.config, self.metrics, self.energy)
 
         self.scheduler = Scheduler(self.config, self.metrics)
 

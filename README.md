@@ -132,6 +132,14 @@ events:
 | LOW      | 15-40%    | 416x416    | 10  | 2     | 5 min         |
 | CRITICAL | < 15%     | 320x240    | 3   | 1     | 15 min        |
 
+### Energy-aware mode
+HeliosNet adjusts FPS and resolution based on battery level.
+In `config/config.yaml`:
+```
+energy:
+  simulated_percent: 55
+```
+
 ---
 
 ## Metrics (Prometheus)

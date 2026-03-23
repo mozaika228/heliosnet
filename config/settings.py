@@ -18,6 +18,7 @@ class EnergyProfile:
 @dataclass
 class EnergyConfig:
     profiles: list[EnergyProfile] = field(default_factory=list)
+    simulated_percent: int = 50
 
 
 @dataclass
@@ -48,7 +49,10 @@ def load_config(path: str) -> Config:
                 sync_interval_sec=int(p.get("sync_interval_sec", 0)),
             )
         )
-    energy_cfg = EnergyConfig(profiles=profiles)
+    energy_cfg = EnergyConfig(
+        profiles=profiles,
+        simulated_percent=int(energy.get("simulated_percent", 50)),
+    )
     return Config(
         node_id=str(data.get("node_id", "edge-001")),
         ingest=data.get("ingest", {}),
