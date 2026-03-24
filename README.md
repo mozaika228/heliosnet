@@ -43,6 +43,7 @@ heliosnet/
 |   |-- gossip.py            # Cluster membership + peer state snapshots
 |   `-- raft.py              # Raft-like control-plane state and config log
 |                             # Leader state, terms, command proposals
+|   `-- model_registry.py    # Canary/rollback model lifecycle state
 |
 |-- sync/
 |   `-- engine.py            # Offline-first sync queue + idempotent delivery
@@ -134,10 +135,17 @@ sync:
 
 distributed:
   enabled: true
+  bind_host: "0.0.0.0"
+  bind_port: 7946
   cluster_state_path: "./data/cluster_state.json"
   raft_state_path: "./data/raft_state.json"
   raft_log_path: "./data/raft_log.jsonl"
+  model_registry_path: "./data/model_registry.json"
+  canary_duration_sec: 120
+  rollback_flag_path: "./data/model_rollback.flag"
 ```
+
+To force rollback during canary, create `./data/model_rollback.flag`.
 
 ---
 

@@ -13,6 +13,7 @@ from events.store import EventStore
 from sync.engine import SyncEngine
 from distributed.gossip import GossipNode
 from distributed.raft import RaftController
+from distributed.model_registry import ModelRegistry
 from observability.metrics import Metrics
 from core.service import BaseService
 
@@ -58,7 +59,8 @@ class Node:
         self.store = EventStore(self.config, self.metrics)
         self.sync = SyncEngine(self.config, self.metrics, self.energy)
         self.gossip = GossipNode(self.config, self.metrics)
-        self.raft = RaftController(self.config, self.metrics)
+        self.raft = RaftController(self.config, self.metrics, self.gossip)
+        self.model_registry = ModelRegistry(self.config, self.metrics, self.raft)
 
         self.scheduler = Scheduler(self.config, self.metrics, self.energy)
 
@@ -69,6 +71,7 @@ class Node:
         self.store.set_next(self.sync)
         self.sync.set_next(self.gossip)
         self.gossip.set_next(self.raft)
+        self.raft.set_next(self.model_registry)
 
         self.scheduler.register(
             self.ingest,
@@ -79,6 +82,7 @@ class Node:
             self.sync,
             self.gossip,
             self.raft,
+            self.model_registry,
         )
 
     def run(self) -> None:
