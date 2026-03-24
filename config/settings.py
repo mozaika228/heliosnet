@@ -29,6 +29,7 @@ class Config:
     tracker: dict
     events: dict
     sync: dict
+    distributed: dict
     observability: dict
     energy: EnergyConfig
     runtime: dict
@@ -60,6 +61,7 @@ def load_config(path: str) -> Config:
         tracker=data.get("tracker", {}),
         events=data.get("events", {}),
         sync=data.get("sync", {}),
+        distributed=data.get("distributed", {}),
         observability=data.get("observability", {}),
         energy=energy_cfg,
         runtime=data.get("runtime", {}),

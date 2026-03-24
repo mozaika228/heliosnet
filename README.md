@@ -40,15 +40,16 @@ heliosnet/
 |   `-- processor.py         # Anomaly detection, count snapshots, event emission
 |
 |-- distributed/
-|   `-- gossip.py            # UDP gossip protocol (stub)
-|                             # Node discovery, model propagation, cluster state
+|   |-- gossip.py            # Cluster membership + peer state snapshots
+|   `-- raft.py              # Raft-like control-plane state and config log
+|                             # Leader state, terms, command proposals
 |
 |-- sync/
-|   `-- engine.py            # Offline-first sync to central (stub)
-|                             # States: OFFLINE -> ONLINE -> BACKOFF
+|   `-- engine.py            # Offline-first sync queue + idempotent delivery
+|                             # Modes: offline | local
 |
 |-- observability/
-|   `-- metrics.py           # Prometheus metrics (stub)
+|   `-- metrics.py           # Prometheus metrics (fps, p95 latency, objs/sec)
 |
 |-- core/
 |   `-- node.py              # Main orchestrator (wires everything together)
@@ -119,6 +120,23 @@ events:
   store_path: "./data/events.jsonl"
   per_source_files: true
   csv_path: "./data/events.csv"
+```
+
+### 10. Offline sync queue and control plane
+In `config/config.yaml`:
+```
+sync:
+  mode: "local"
+  interval_sec: 60
+  queue_path: "./data/sync_queue.jsonl"
+  sent_path: "./data/sent_events.jsonl"
+  acked_path: "./data/sync_acked.txt"
+
+distributed:
+  enabled: true
+  cluster_state_path: "./data/cluster_state.json"
+  raft_state_path: "./data/raft_state.json"
+  raft_log_path: "./data/raft_log.jsonl"
 ```
 
 ---

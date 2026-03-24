@@ -14,6 +14,7 @@ class EnergyScheduler:
         self._profiles = profiles or []
         self._state = EnergyState(level="NORMAL", percent=50)
         self._current_profile = None
+        self._tick = 0
 
     def update_battery(self, percent: int) -> None:
         self._state.percent = percent
@@ -32,3 +33,27 @@ class EnergyScheduler:
 
     def current_profile(self):
         return self._current_profile
+
+    def next_tick(self) -> int:
+        self._tick += 1
+        return self._tick
+
+    def should_run(self, service_name: str, tick: int) -> bool:
+        level = (self._state.level or "NORMAL").upper()
+        if level == "FULL":
+            return True
+        if level == "NORMAL":
+            if service_name == "sync":
+                return tick % 2 == 0
+            return True
+        if level == "LOW":
+            if service_name in ("sync", "gossip", "raft"):
+                return tick % 5 == 0
+            return True
+        if level == "CRITICAL":
+            if service_name in ("sync", "gossip", "raft"):
+                return tick % 20 == 0
+            if service_name == "ingest":
+                return tick % 2 == 0
+            return True
+        return True

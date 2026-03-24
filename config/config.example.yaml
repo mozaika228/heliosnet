@@ -43,8 +43,22 @@ events:
   csv_path: "./data/events.csv"
 
 sync:
-  mode: "offline"
+  mode: "local"
   interval_sec: 60
+  batch_size: 100
+  queue_path: "./data/sync_queue.jsonl"
+  sent_path: "./data/sent_events.jsonl"
+  acked_path: "./data/sync_acked.txt"
+
+distributed:
+  enabled: true
+  gossip_interval_sec: 2
+  peer_timeout_sec: 10
+  bootstrap_peers: []
+  cluster_state_path: "./data/cluster_state.json"
+  raft_state_path: "./data/raft_state.json"
+  raft_log_path: "./data/raft_log.jsonl"
+  raft_heartbeat_sec: 1.0
 
 observability:
   metrics: true
