@@ -17,6 +17,10 @@ from distributed.model_registry import ModelRegistry
 from observability.metrics import Metrics
 from core.service import BaseService
 from core.audit import AuditLog
+from core.live_state import LiveState
+from core.command_center import CommandCenter
+from notifier.telegram import TelegramNotifier
+from ui.server import WebUIService
 
 
 class Scheduler:
@@ -55,15 +59,19 @@ class Node:
         self.energy.update_battery(self.config.energy.simulated_percent)
         dist_cfg = getattr(self.config, "distributed", {})
         self.audit = AuditLog(str(dist_cfg.get("audit_log_path", "./data/audit_log.jsonl")))
+        self.live_state = LiveState(max_events=1000)
         self.ingest = IngestManager(self.config, self.metrics, self.energy)
         self.gossip = GossipNode(self.config, self.metrics, self.audit)
         self.raft = RaftController(self.config, self.metrics, self.gossip, self.audit)
         self.model_registry = ModelRegistry(self.config, self.metrics, self.raft, self.audit)
         self.inference = InferenceEngine(self.config, self.metrics, self.model_registry)
-        self.tracker = TrackCoordinator(self.config, self.metrics)
+        self.tracker = TrackCoordinator(self.config, self.metrics, self.live_state)
         self.events = EventsProcessor(self.config, self.metrics)
-        self.store = EventStore(self.config, self.metrics)
+        self.store = EventStore(self.config, self.metrics, self.live_state)
+        self.telegram = TelegramNotifier(self.config, self.metrics)
         self.sync = SyncEngine(self.config, self.metrics, self.energy)
+        self.command_center = CommandCenter(self.config, self.metrics, self.energy, self.model_registry)
+        self.web_ui = WebUIService(self.config, self.metrics, self.live_state)
 
         self.scheduler = Scheduler(self.config, self.metrics, self.energy)
 
@@ -71,7 +79,8 @@ class Node:
         self.inference.set_next(self.tracker)
         self.tracker.set_next(self.events)
         self.events.set_next(self.store)
-        self.store.set_next(self.sync)
+        self.store.set_next(self.telegram)
+        self.telegram.set_next(self.sync)
         self.sync.set_next(self.gossip)
         self.gossip.set_next(self.raft)
         self.raft.set_next(self.model_registry)
@@ -82,10 +91,13 @@ class Node:
             self.tracker,
             self.events,
             self.store,
+            self.telegram,
             self.sync,
             self.gossip,
             self.raft,
             self.model_registry,
+            self.command_center,
+            self.web_ui,
         )
 
     def run(self) -> None:

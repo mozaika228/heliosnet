@@ -6,3 +6,5 @@ pyyaml
 prometheus-client
 ultralytics
 supervision
+fastapi
+uvicorn

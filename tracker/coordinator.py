@@ -142,10 +142,11 @@ class ByteTrackWrapper:
 
 
 class TrackCoordinator(BaseService):
-    def __init__(self, config, metrics):
+    def __init__(self, config, metrics, live_state=None):
         super().__init__("tracker")
         self.config = config
         self.metrics = metrics
+        self.live_state = live_state
         track_cfg = getattr(config, "tracker", {})
         backend = str(track_cfg.get("backend", "iou")).lower()
         self._tracker = None
@@ -179,6 +180,12 @@ class TrackCoordinator(BaseService):
             if cls in label_map:
                 t["label"] = label_map[cls]
         item["tracks"] = tracks
+        if self.live_state is not None:
+            self.live_state.update_frame(
+                source_id=str(item.get("source_id", "source")),
+                tracks=tracks,
+                detections=item.get("detections", []),
+            )
         if self._preview and isinstance(item.get("frame"), np.ndarray):
             self._show_preview(item.get("frame"), tracks, item.get("source_id", "source"))
         self.metrics.inc("frames_tracked")

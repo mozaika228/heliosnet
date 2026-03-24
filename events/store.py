@@ -8,10 +8,11 @@ from core.service import BaseService
 
 
 class EventStore(BaseService):
-    def __init__(self, config, metrics):
+    def __init__(self, config, metrics, live_state=None):
         super().__init__("event_store")
         self.config = config
         self.metrics = metrics
+        self.live_state = live_state
         events_cfg = getattr(config, "events", {})
         self._path = Path(events_cfg.get("store_path", "./data/events.jsonl"))
         self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -21,6 +22,8 @@ class EventStore(BaseService):
     def handle(self, item) -> None:
         events = item.get("events", [])
         if events:
+            if self.live_state is not None:
+                self.live_state.push_events(events)
             if self._per_source and item.get("source_id"):
                 src = item.get("source_id")
                 path = self._path.parent / f"events_{src}.jsonl"

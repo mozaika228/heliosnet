@@ -55,6 +55,14 @@ heliosnet/
 |
 |-- core/
 |   `-- node.py              # Main orchestrator (wires everything together)
+|   `-- live_state.py        # Real-time state cache for UI/events
+|   `-- command_center.py    # Operator command loop
+|
+|-- ui/
+|   `-- server.py            # Real-time digital twin web UI + SSE + command API
+|
+|-- notifier/
+|   `-- telegram.py          # Telegram alert sink
 |
 `-- tests/
     `-- test_core.py         # Async tests, no GPU/camera required
@@ -221,6 +229,26 @@ Grafana: `http://localhost:3000` (admin/admin)
 
 Prometheus is mapped to `http://localhost:9091`.
 If `host.docker.internal` does not resolve, update `docker/prometheus/prometheus.yml`.
+
+### Live Web UI (Digital Twin)
+Enabled by default:
+```
+observability:
+  web_ui: true
+  web_ui_port: 8080
+```
+Open `http://localhost:8080` for:
+- real-time source map and track/object counters
+- SSE event feed
+- operator command panel (battery/model actions)
+
+### Telegram alerts
+```
+observability:
+  telegram_enabled: true
+  telegram_bot_token: "..."
+  telegram_chat_id: "..."
+```
 
 ---
 
