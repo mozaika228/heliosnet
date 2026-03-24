@@ -9,11 +9,12 @@ from core.service import BaseService
 
 
 class RaftController(BaseService):
-    def __init__(self, config, metrics, gossip=None):
+    def __init__(self, config, metrics, gossip=None, audit=None):
         super().__init__("raft")
         self.config = config
         self.metrics = metrics
         self.gossip = gossip
+        self.audit = audit
         dist_cfg = getattr(config, "distributed", {})
         self._enabled = bool(dist_cfg.get("enabled", True))
         self._state_path = Path(dist_cfg.get("raft_state_path", "./data/raft_state.json"))
@@ -86,6 +87,8 @@ class RaftController(BaseService):
         self._acks[self._last_log_index] = {self.config.node_id}
         with self._log_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=True) + "\n")
+        if self.audit is not None:
+            self.audit.write("raft_propose", {"index": self._last_log_index, "term": self._term, "command": command})
         self._broadcast_append(entry)
         return True
 
@@ -98,6 +101,8 @@ class RaftController(BaseService):
         if votes >= quorum:
             self._role = "leader"
             self._leader_id = self.config.node_id
+            if self.audit is not None:
+                self.audit.write("raft_elected_leader", {"term": self._term, "node_id": self.config.node_id})
         else:
             self._role = "follower"
             self._leader_id = None

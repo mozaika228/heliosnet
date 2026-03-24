@@ -16,6 +16,7 @@ from distributed.raft import RaftController
 from distributed.model_registry import ModelRegistry
 from observability.metrics import Metrics
 from core.service import BaseService
+from core.audit import AuditLog
 
 
 class Scheduler:
@@ -52,10 +53,12 @@ class Node:
 
         self.energy = EnergyScheduler(self.config.energy.profiles)
         self.energy.update_battery(self.config.energy.simulated_percent)
+        dist_cfg = getattr(self.config, "distributed", {})
+        self.audit = AuditLog(str(dist_cfg.get("audit_log_path", "./data/audit_log.jsonl")))
         self.ingest = IngestManager(self.config, self.metrics, self.energy)
-        self.gossip = GossipNode(self.config, self.metrics)
-        self.raft = RaftController(self.config, self.metrics, self.gossip)
-        self.model_registry = ModelRegistry(self.config, self.metrics, self.raft)
+        self.gossip = GossipNode(self.config, self.metrics, self.audit)
+        self.raft = RaftController(self.config, self.metrics, self.gossip, self.audit)
+        self.model_registry = ModelRegistry(self.config, self.metrics, self.raft, self.audit)
         self.inference = InferenceEngine(self.config, self.metrics, self.model_registry)
         self.tracker = TrackCoordinator(self.config, self.metrics)
         self.events = EventsProcessor(self.config, self.metrics)

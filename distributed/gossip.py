@@ -6,13 +6,15 @@ import socket
 import time
 
 from core.service import BaseService
+from distributed.security import MessageSecurity
 
 
 class GossipNode(BaseService):
-    def __init__(self, config, metrics):
+    def __init__(self, config, metrics, audit=None):
         super().__init__("gossip")
         self.config = config
         self.metrics = metrics
+        self.audit = audit
         dist_cfg = getattr(config, "distributed", {})
         self._enabled = bool(dist_cfg.get("enabled", True))
         self._bind_host = str(dist_cfg.get("bind_host", "0.0.0.0"))
@@ -27,6 +29,8 @@ class GossipNode(BaseService):
         self._control_inbox: list[dict] = []
         self._state_path = Path(dist_cfg.get("cluster_state_path", "./data/cluster_state.json"))
         self._state_path.parent.mkdir(parents=True, exist_ok=True)
+        self._security = MessageSecurity(str(dist_cfg.get("shared_secret", "")))
+        self._require_signed = bool(dist_cfg.get("require_signed_control", False))
         self._sock = None
         if self._enabled:
             self._open_socket()
@@ -76,6 +80,11 @@ class GossipNode(BaseService):
                 msg = json.loads(data.decode("utf-8"))
             except Exception:
                 continue
+            signature = msg.pop("signature", None)
+            if self._require_signed and not self._security.verify(msg, signature):
+                if self.audit is not None:
+                    self.audit.write("gossip_invalid_signature", {"from": f"{addr[0]}:{addr[1]}"})
+                continue
             kind = str(msg.get("kind", "HEARTBEAT")).upper()
             if kind == "CONTROL":
                 self._control_inbox.append(msg)
@@ -91,7 +100,8 @@ class GossipNode(BaseService):
         if self._sock is None:
             return
         payload = self._heartbeat_payload(now)
-        encoded = json.dumps(payload, ensure_ascii=True).encode("utf-8")
+        signed = self._sign(payload)
+        encoded = json.dumps(signed, ensure_ascii=True).encode("utf-8")
         for key in list(self._peers.keys()):
             host, port = self._parse_peer(key)
             if host is None:
@@ -159,7 +169,8 @@ class GossipNode(BaseService):
             "ts": time.time(),
             "payload": payload,
         }
-        encoded = json.dumps(msg, ensure_ascii=True).encode("utf-8")
+        signed = self._sign(msg)
+        encoded = json.dumps(signed, ensure_ascii=True).encode("utf-8")
         for key in list(self._peers.keys()):
             host, port = self._parse_peer(key)
             if host is None:
@@ -168,3 +179,9 @@ class GossipNode(BaseService):
                 self._sock.sendto(encoded, (host, port))
             except Exception:
                 continue
+
+    def _sign(self, msg: dict) -> dict:
+        out = dict(msg)
+        if self._security.enabled:
+            out["signature"] = self._security.sign(msg)
+        return out

@@ -5,14 +5,16 @@ from pathlib import Path
 import time
 
 from core.service import BaseService
+from distributed.security import MessageSecurity
 
 
 class ModelRegistry(BaseService):
-    def __init__(self, config, metrics, raft=None):
+    def __init__(self, config, metrics, raft=None, audit=None):
         super().__init__("model_registry")
         self.config = config
         self.metrics = metrics
         self.raft = raft
+        self.audit = audit
         dist_cfg = getattr(config, "distributed", {})
         self._path = Path(dist_cfg.get("model_registry_path", "./data/model_registry.json"))
         self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -21,6 +23,8 @@ class ModelRegistry(BaseService):
         self._commands_path = Path(dist_cfg.get("model_commands_path", "./data/model_commands.jsonl"))
         self._commands_path.parent.mkdir(parents=True, exist_ok=True)
         self._last_cmd_size = 0
+        self._security = MessageSecurity(str(dist_cfg.get("shared_secret", "")))
+        self._require_signed = bool(dist_cfg.get("require_signed_commands", False))
         self._state = self._load()
 
     def handle(self, item) -> None:
@@ -73,6 +77,8 @@ class ModelRegistry(BaseService):
         self._state["status"] = "canary"
         self._state["canary_started_at"] = time.time()
         self._persist()
+        if self.audit is not None:
+            self.audit.write("model_canary_start", {"version": version, "path": model_path})
         return True
 
     def promote_canary(self) -> None:
@@ -84,6 +90,8 @@ class ModelRegistry(BaseService):
         self._state["status"] = "stable"
         self._state["canary_started_at"] = 0.0
         self._persist()
+        if self.audit is not None:
+            self.audit.write("model_promote", {"version": canary})
 
     def rollback(self, reason: str) -> None:
         self._state["canary_version"] = None
@@ -91,6 +99,8 @@ class ModelRegistry(BaseService):
         self._state["rollback_reason"] = reason
         self._state["canary_started_at"] = 0.0
         self._persist()
+        if self.audit is not None:
+            self.audit.write("model_rollback", {"reason": reason})
         if self._rollback_flag.exists():
             try:
                 self._rollback_flag.unlink()
@@ -103,11 +113,15 @@ class ModelRegistry(BaseService):
             return False
         self._state["pinned_version"] = version
         self._persist()
+        if self.audit is not None:
+            self.audit.write("model_pin", {"version": version})
         return True
 
     def unpin(self) -> None:
         self._state["pinned_version"] = None
         self._persist()
+        if self.audit is not None:
+            self.audit.write("model_unpin", {})
 
     def _consume_commands(self) -> None:
         if not self._commands_path.exists():
@@ -124,6 +138,10 @@ class ModelRegistry(BaseService):
                 try:
                     cmd = json.loads(line)
                 except Exception:
+                    continue
+                if not self._verify_command(cmd):
+                    if self.audit is not None:
+                        self.audit.write("model_command_rejected", {"reason": "invalid_signature"})
                     continue
                 self._apply_command(cmd)
 
@@ -152,6 +170,16 @@ class ModelRegistry(BaseService):
             self.pin(version)
         elif action == "unpin":
             self.unpin()
+
+    def _verify_command(self, cmd: dict) -> bool:
+        if not self._require_signed:
+            return True
+        signature = cmd.get("signature")
+        if not isinstance(signature, str):
+            return False
+        payload = dict(cmd)
+        payload.pop("signature", None)
+        return self._security.verify(payload, signature)
 
     def _load(self) -> dict:
         if not self._path.exists():

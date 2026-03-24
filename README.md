@@ -44,6 +44,7 @@ heliosnet/
 |   `-- raft.py              # Raft-like control-plane state and config log
 |                             # Leader state, terms, command proposals
 |   `-- model_registry.py    # Canary/rollback model lifecycle state
+|   `-- security.py          # HMAC signatures for control/messages
 |
 |-- sync/
 |   `-- engine.py            # Offline-first sync queue + idempotent delivery
@@ -155,6 +156,22 @@ Append JSON lines to `./data/model_commands.jsonl`:
 {"action":"rollback"}
 {"action":"pin","version":"v2"}
 {"action":"unpin"}
+```
+
+### 12. Enterprise security and audit
+In `config/config.yaml`:
+```
+distributed:
+  shared_secret: "change-me"
+  require_signed_control: true
+  require_signed_commands: true
+  audit_log_path: "./data/audit_log.jsonl"
+```
+
+With `require_signed_commands: true`, each command line must contain `signature`.
+Generate signed command:
+```bash
+python scripts/sign_model_command.py --secret "change-me" --action register --version v2 --path C:/models/yolo11s.pt --backend ultralytics
 ```
 
 To force rollback during canary, create `./data/model_rollback.flag`.
