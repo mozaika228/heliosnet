@@ -32,6 +32,7 @@ class RaftController(BaseService):
         self._last_log_index = 0
         self._commit_index = 0
         self._pending: list[dict] = []
+        self._acks: dict[int, set[str]] = {}
         self._min_cluster_size = int(dist_cfg.get("raft_min_cluster_size", 1))
         self._load_state()
 
@@ -58,9 +59,11 @@ class RaftController(BaseService):
         if not self._enabled:
             return
         now = time.time()
+        self._process_control(now)
         if self._role == "leader":
             if now - self._last_tick >= self._heartbeat_interval:
                 self._last_tick = now
+                self._send_heartbeat()
                 self._try_commit()
                 self._write_state(now)
             return
@@ -80,8 +83,10 @@ class RaftController(BaseService):
             "committed": False,
         }
         self._pending.append(entry)
+        self._acks[self._last_log_index] = {self.config.node_id}
         with self._log_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=True) + "\n")
+        self._broadcast_append(entry)
         return True
 
     def _start_election(self, now: float) -> None:
@@ -105,13 +110,16 @@ class RaftController(BaseService):
             return
         cluster_size = self._cluster_size()
         quorum = (cluster_size // 2) + 1
-        replicas = 1 + self._alive_peer_count()
-        if replicas < quorum:
-            return
+        remaining = []
         for entry in self._pending:
-            entry["committed"] = True
-            self._commit_index = max(self._commit_index, int(entry["index"]))
-        self._pending = []
+            idx = int(entry["index"])
+            votes = len(self._acks.get(idx, {self.config.node_id}))
+            if votes >= quorum:
+                entry["committed"] = True
+                self._commit_index = max(self._commit_index, idx)
+            else:
+                remaining.append(entry)
+        self._pending = remaining
         self._rewrite_log_mark_committed()
 
     def _rewrite_log_mark_committed(self) -> None:
@@ -151,6 +159,77 @@ class RaftController(BaseService):
         if self.gossip is None:
             return 0
         return int(self.gossip.alive_peer_count())
+
+    def _process_control(self, now: float) -> None:
+        if self.gossip is None:
+            return
+        for msg in self.gossip.drain_control():
+            payload = msg.get("payload", {}) or {}
+            mtype = str(payload.get("type", "")).upper()
+            src = str(msg.get("node_id", ""))
+            term = int(payload.get("term", 0))
+            if mtype == "RAFT_HEARTBEAT":
+                if term >= self._term:
+                    self._term = term
+                    self._role = "follower"
+                    self._leader_id = src
+                    self._last_heartbeat = now
+                    self._election_timeout = self._new_timeout()
+            elif mtype == "RAFT_APPEND":
+                if term >= self._term:
+                    self._term = term
+                    self._role = "follower"
+                    self._leader_id = src
+                    self._last_heartbeat = now
+                    entry = payload.get("entry")
+                    if entry is not None:
+                        self._append_replica(entry)
+                    self._send_ack(payload.get("index"))
+            elif mtype == "RAFT_ACK" and self._role == "leader":
+                idx = int(payload.get("index", 0))
+                if idx not in self._acks:
+                    self._acks[idx] = {self.config.node_id}
+                self._acks[idx].add(src)
+
+    def _send_heartbeat(self) -> None:
+        if self.gossip is None:
+            return
+        self.gossip.broadcast_control(
+            {"type": "RAFT_HEARTBEAT", "term": self._term, "leader_id": self.config.node_id}
+        )
+
+    def _broadcast_append(self, entry: dict) -> None:
+        if self.gossip is None:
+            return
+        self.gossip.broadcast_control(
+            {
+                "type": "RAFT_APPEND",
+                "term": self._term,
+                "leader_id": self.config.node_id,
+                "index": entry.get("index"),
+                "entry": entry,
+            }
+        )
+
+    def _send_ack(self, index) -> None:
+        if self.gossip is None or index is None:
+            return
+        self.gossip.broadcast_control(
+            {
+                "type": "RAFT_ACK",
+                "term": self._term,
+                "leader_id": self._leader_id,
+                "index": int(index),
+            }
+        )
+
+    def _append_replica(self, entry: dict) -> None:
+        idx = int(entry.get("index", 0))
+        if idx <= self._last_log_index:
+            return
+        self._last_log_index = idx
+        with self._log_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=True) + "\n")
 
     def _write_state(self, now: float) -> None:
         payload = {

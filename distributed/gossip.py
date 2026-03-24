@@ -24,6 +24,7 @@ class GossipNode(BaseService):
             for p in dist_cfg.get("bootstrap_peers", [])
         }
         self._last_tick = 0.0
+        self._control_inbox: list[dict] = []
         self._state_path = Path(dist_cfg.get("cluster_state_path", "./data/cluster_state.json"))
         self._state_path.parent.mkdir(parents=True, exist_ok=True)
         self._sock = None
@@ -74,6 +75,10 @@ class GossipNode(BaseService):
             try:
                 msg = json.loads(data.decode("utf-8"))
             except Exception:
+                continue
+            kind = str(msg.get("kind", "HEARTBEAT")).upper()
+            if kind == "CONTROL":
+                self._control_inbox.append(msg)
                 continue
             peer_key = f"{addr[0]}:{addr[1]}"
             rec = self._peers.get(peer_key, {"last_seen": 0.0, "state": {}, "alive": True})
@@ -136,3 +141,30 @@ class GossipNode(BaseService):
             key = f"{host}:{port}"
             if key not in self._peers:
                 self._peers[key] = {"last_seen": 0.0, "alive": False, "state": {}}
+
+    def members(self) -> dict:
+        return self._peers
+
+    def drain_control(self) -> list[dict]:
+        out = self._control_inbox[:]
+        self._control_inbox = []
+        return out
+
+    def broadcast_control(self, payload: dict) -> None:
+        if self._sock is None:
+            return
+        msg = {
+            "kind": "CONTROL",
+            "node_id": self.config.node_id,
+            "ts": time.time(),
+            "payload": payload,
+        }
+        encoded = json.dumps(msg, ensure_ascii=True).encode("utf-8")
+        for key in list(self._peers.keys()):
+            host, port = self._parse_peer(key)
+            if host is None:
+                continue
+            try:
+                self._sock.sendto(encoded, (host, port))
+            except Exception:
+                continue

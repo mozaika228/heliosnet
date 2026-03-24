@@ -53,14 +53,14 @@ class Node:
         self.energy = EnergyScheduler(self.config.energy.profiles)
         self.energy.update_battery(self.config.energy.simulated_percent)
         self.ingest = IngestManager(self.config, self.metrics, self.energy)
-        self.inference = InferenceEngine(self.config, self.metrics)
+        self.gossip = GossipNode(self.config, self.metrics)
+        self.raft = RaftController(self.config, self.metrics, self.gossip)
+        self.model_registry = ModelRegistry(self.config, self.metrics, self.raft)
+        self.inference = InferenceEngine(self.config, self.metrics, self.model_registry)
         self.tracker = TrackCoordinator(self.config, self.metrics)
         self.events = EventsProcessor(self.config, self.metrics)
         self.store = EventStore(self.config, self.metrics)
         self.sync = SyncEngine(self.config, self.metrics, self.energy)
-        self.gossip = GossipNode(self.config, self.metrics)
-        self.raft = RaftController(self.config, self.metrics, self.gossip)
-        self.model_registry = ModelRegistry(self.config, self.metrics, self.raft)
 
         self.scheduler = Scheduler(self.config, self.metrics, self.energy)
 

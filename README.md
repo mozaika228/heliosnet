@@ -141,8 +141,20 @@ distributed:
   raft_state_path: "./data/raft_state.json"
   raft_log_path: "./data/raft_log.jsonl"
   model_registry_path: "./data/model_registry.json"
+  model_commands_path: "./data/model_commands.jsonl"
   canary_duration_sec: 120
   rollback_flag_path: "./data/model_rollback.flag"
+```
+
+### 11. Model lifecycle commands
+Append JSON lines to `./data/model_commands.jsonl`:
+```json
+{"action":"register","version":"v2","path":"C:/models/yolo11s.pt","backend":"ultralytics"}
+{"action":"canary","version":"v2"}
+{"action":"promote"}
+{"action":"rollback"}
+{"action":"pin","version":"v2"}
+{"action":"unpin"}
 ```
 
 To force rollback during canary, create `./data/model_rollback.flag`.

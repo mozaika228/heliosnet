@@ -401,17 +401,18 @@ class UltralyticsRunner(BaseRunner):
 
 
 class InferenceEngine(BaseService):
-    def __init__(self, config, metrics):
+    def __init__(self, config, metrics, lifecycle=None):
         super().__init__("inference")
         self.config = config
         self.metrics = metrics
+        self.lifecycle = lifecycle
         inf_cfg = getattr(config, "inference", {})
-        backend = str(inf_cfg.get("backend", "stub")).lower()
-        model_path = str(inf_cfg.get("model", ""))
-        device = str(inf_cfg.get("device", "cpu"))
-        conf_threshold = float(inf_cfg.get("conf", inf_cfg.get("conf_threshold", 0.25)))
-        max_det = int(inf_cfg.get("max_det", 300))
-        output_format = str(inf_cfg.get("output_format", "auto")).lower()
+        self._backend = str(inf_cfg.get("backend", "stub")).lower()
+        self._model_path = str(inf_cfg.get("model", ""))
+        self._device = str(inf_cfg.get("device", "cpu"))
+        self._conf_threshold = float(inf_cfg.get("conf", inf_cfg.get("conf_threshold", 0.25)))
+        self._max_det = int(inf_cfg.get("max_det", 300))
+        self._output_format = str(inf_cfg.get("output_format", "auto")).lower()
         self._preview = bool(inf_cfg.get("preview", False))
         self._preview_window = str(inf_cfg.get("preview_window", "HeliosNet"))
         self._nms_iou = float(inf_cfg.get("nms_iou", 0.0))
@@ -434,28 +435,14 @@ class InferenceEngine(BaseService):
                 poly = [[float(a), float(b)] for a, b in rule.get("polygon", [])]
                 if len(poly) >= 3:
                     self._zone_shapes.append(("poly", poly))
-
-        if backend == "onnxruntime":
-            self._runner = OnnxRuntimeRunner(
-                model_path, device, conf_threshold, max_det, output_format
-            )
-        elif backend == "groundingdino":
-            self._runner = GroundingDinoRunner(
-                str(inf_cfg.get("gd_config", "")),
-                str(inf_cfg.get("gd_checkpoint", "")),
-                str(inf_cfg.get("text_prompt", "")),
-                float(inf_cfg.get("box_threshold", 0.35)),
-                float(inf_cfg.get("text_threshold", 0.25)),
-                str(inf_cfg.get("device", "cpu")),
-            )
-        elif backend == "ultralytics":
-            self._runner = UltralyticsRunner(
-                model_path, device, conf_threshold, self._classes
-            )
-        else:
-            self._runner = StubRunner()
+        self._runner = self._build_runner(self._backend, self._model_path)
+        self._target_version = "default"
+        if self.lifecycle is not None:
+            self._target_version, self._backend, self._model_path = self.lifecycle.current_target()
+            self._runner = self._build_runner(self._backend, self._model_path)
 
     def handle(self, item) -> None:
+        self._maybe_reload_runner()
         if self._batch_size <= 1:
             self._process_single(item)
             return
@@ -464,6 +451,7 @@ class InferenceEngine(BaseService):
             self._flush()
 
     def tick(self) -> None:
+        self._maybe_reload_runner()
         if self._batch_size <= 1:
             return
         now = time.time()
@@ -541,3 +529,38 @@ class InferenceEngine(BaseService):
         cv2.imshow(window, vis)
         if cv2.waitKey(1) & 0xFF == ord("q"):
             raise SystemExit
+
+    def _build_runner(self, backend: str, model_path: str):
+        inf_cfg = getattr(self.config, "inference", {})
+        if backend == "onnxruntime":
+            return OnnxRuntimeRunner(
+                model_path, self._device, self._conf_threshold, self._max_det, self._output_format
+            )
+        if backend == "groundingdino":
+            return GroundingDinoRunner(
+                str(inf_cfg.get("gd_config", "")),
+                str(inf_cfg.get("gd_checkpoint", "")),
+                str(inf_cfg.get("text_prompt", "")),
+                float(inf_cfg.get("box_threshold", 0.35)),
+                float(inf_cfg.get("text_threshold", 0.25)),
+                str(inf_cfg.get("device", "cpu")),
+            )
+        if backend == "ultralytics":
+            return UltralyticsRunner(model_path, self._device, self._conf_threshold, self._classes)
+        return StubRunner()
+
+    def _maybe_reload_runner(self) -> None:
+        if self.lifecycle is None:
+            return
+        version, backend, model_path = self.lifecycle.current_target()
+        backend = str(backend).lower()
+        if version == self._target_version and backend == self._backend and model_path == self._model_path:
+            return
+        self._target_version = version
+        self._backend = backend
+        self._model_path = model_path
+        self._runner = self._build_runner(self._backend, self._model_path)
+        print(
+            f"[inference] model switch version={version} backend={backend} model={model_path}",
+            flush=True,
+        )

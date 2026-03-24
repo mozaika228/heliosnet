@@ -63,6 +63,7 @@ distributed:
   raft_heartbeat_sec: 1.0
   raft_min_cluster_size: 1
   model_registry_path: "./data/model_registry.json"
+  model_commands_path: "./data/model_commands.jsonl"
   canary_duration_sec: 120
   rollback_flag_path: "./data/model_rollback.flag"
 
