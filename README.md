@@ -1,4 +1,6 @@
 # HeliosNet
+[![CI](https://github.com/mozaika228/heliosnet/actions/workflows/ci.yml/badge.svg)](https://github.com/mozaika228/heliosnet/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/mozaika228/heliosnet/branch/main/graph/badge.svg)](https://codecov.io/gh/mozaika228/heliosnet)
 Distributed Real-Time Computer Vision for Edge Networks
 
 ```
