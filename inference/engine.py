@@ -426,12 +426,25 @@ class InferenceEngine(BaseService):
         self._phone_catalog_dir = str(inf_cfg.get("phone_catalog_dir", "./data/phone_catalog"))
         self._phone_min_score = float(inf_cfg.get("phone_min_score", 0.45))
         self._phone_top_k = int(inf_cfg.get("phone_top_k", 3))
+        self._phone_embed_backend = str(inf_cfg.get("phone_embed_backend", "resnet18"))
+        self._phone_embed_device = str(inf_cfg.get("phone_embed_device", self._device))
+        self._phone_cache_path = str(
+            inf_cfg.get("phone_cache_path", "./data/phone_catalog_index.npz")
+        )
         self._phone_matcher = None
         if self._phone_id_enabled:
             self._phone_matcher = PhoneModelMatcher(
                 self._phone_catalog_dir,
                 min_score=self._phone_min_score,
                 top_k=self._phone_top_k,
+                embed_backend=self._phone_embed_backend,
+                embed_device=self._phone_embed_device,
+                cache_path=self._phone_cache_path,
+            )
+            print(
+                f"[phone_id] enabled backend={self._phone_matcher.active_backend} "
+                f"catalog={self._phone_catalog_dir}",
+                flush=True,
             )
 
         events_cfg = getattr(config, "events", {})

@@ -142,11 +142,15 @@ inference:
   phone_catalog_dir: "./data/phone_catalog"
   phone_min_score: 0.45
   phone_top_k: 3
+  phone_embed_backend: "resnet18"   # resnet18 | histogram
+  phone_embed_device: "cpu"         # cpu | cuda
+  phone_cache_path: "./data/phone_catalog_index.npz"
 ```
 Catalog format:
 - put reference images in `./data/phone_catalog`
 - filename pattern: `ModelName__anything.jpg`
 - example: `iPhone_13__front.jpg`, `Samsung_A54__angle2.png`
+- for `resnet18` backend install optional package: `pip install torchvision`
 
 Detection output fields:
 - `phone_model_guess`
