@@ -8,6 +8,7 @@ import cv2
 import time
 
 from core.service import BaseService
+from inference.phone_matcher import PhoneModelMatcher
 
 try:
     import onnxruntime as ort
@@ -421,6 +422,17 @@ class InferenceEngine(BaseService):
         self._batch_timeout_ms = int(inf_cfg.get("batch_timeout_ms", 10))
         self._queue: list[dict] = []
         self._last_flush = time.time()
+        self._phone_id_enabled = bool(inf_cfg.get("phone_id_enabled", False))
+        self._phone_catalog_dir = str(inf_cfg.get("phone_catalog_dir", "./data/phone_catalog"))
+        self._phone_min_score = float(inf_cfg.get("phone_min_score", 0.45))
+        self._phone_top_k = int(inf_cfg.get("phone_top_k", 3))
+        self._phone_matcher = None
+        if self._phone_id_enabled:
+            self._phone_matcher = PhoneModelMatcher(
+                self._phone_catalog_dir,
+                min_score=self._phone_min_score,
+                top_k=self._phone_top_k,
+            )
 
         events_cfg = getattr(config, "events", {})
         self._zone_shapes = []
@@ -490,6 +502,8 @@ class InferenceEngine(BaseService):
         if self._classes and dets:
             dets = [d for d in dets if int(d.get("cls", -1)) in self._classes]
         dets = _nms(dets, self._nms_iou)
+        if self._phone_matcher is not None and isinstance(frame, np.ndarray):
+            self._annotate_phone_models(frame, dets)
         item["detections"] = dets
         if self._preview and isinstance(frame, np.ndarray):
             self._show_preview(frame, dets, source_id)
@@ -515,6 +529,8 @@ class InferenceEngine(BaseService):
             cls = det.get("cls", -1)
             conf = det.get("conf", 0.0)
             name = det.get("label") or str(cls)
+            if det.get("phone_model_guess"):
+                name = f"{name}->{det.get('phone_model_guess')}"
             label = f"{name}:{conf:.2f}"
             cv2.putText(
                 vis,
@@ -529,6 +545,32 @@ class InferenceEngine(BaseService):
         cv2.imshow(window, vis)
         if cv2.waitKey(1) & 0xFF == ord("q"):
             raise SystemExit
+
+    def _annotate_phone_models(self, frame: np.ndarray, dets: list[dict]) -> None:
+        h, w = frame.shape[:2]
+        for d in dets:
+            label = str(d.get("label", "")).lower()
+            cls = int(d.get("cls", -1))
+            if label != "cell phone" and cls != 67:
+                continue
+            bbox = d.get("bbox")
+            if not bbox or len(bbox) != 4:
+                continue
+            x1, y1, x2, y2 = [int(v) for v in bbox]
+            x1 = max(0, min(w - 1, x1))
+            y1 = max(0, min(h - 1, y1))
+            x2 = max(0, min(w, x2))
+            y2 = max(0, min(h, y2))
+            if x2 - x1 < 10 or y2 - y1 < 10:
+                continue
+            crop = frame[y1:y2, x1:x2]
+            matches = self._phone_matcher.match(crop)
+            if not matches:
+                continue
+            d["phone_candidates"] = [
+                {"model": m.model_name, "score": round(m.score, 4)} for m in matches
+            ]
+            d["phone_model_guess"] = matches[0].model_name
 
     def _build_runner(self, backend: str, model_path: str):
         inf_cfg = getattr(self.config, "inference", {})

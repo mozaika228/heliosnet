@@ -134,6 +134,24 @@ events:
   csv_path: "./data/events.csv"
 ```
 
+### 9.1 Phone model guess (offline)
+HeliosNet can estimate phone model for `cell phone` detections using a local catalog.
+```
+inference:
+  phone_id_enabled: true
+  phone_catalog_dir: "./data/phone_catalog"
+  phone_min_score: 0.45
+  phone_top_k: 3
+```
+Catalog format:
+- put reference images in `./data/phone_catalog`
+- filename pattern: `ModelName__anything.jpg`
+- example: `iPhone_13__front.jpg`, `Samsung_A54__angle2.png`
+
+Detection output fields:
+- `phone_model_guess`
+- `phone_candidates` (`top_k` with similarity scores)
+
 ### 10. Offline sync queue and control plane
 In `config/config.yaml`:
 ```
