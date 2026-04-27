@@ -31,6 +31,8 @@ class Config:
     sync: dict
     distributed: dict
     observability: dict
+    safety: dict
+    mlops: dict
     energy: EnergyConfig
     runtime: dict
 
@@ -63,6 +65,8 @@ def load_config(path: str) -> Config:
         sync=data.get("sync", {}),
         distributed=data.get("distributed", {}),
         observability=data.get("observability", {}),
+        safety=data.get("safety", {}),
+        mlops=data.get("mlops", {}),
         energy=energy_cfg,
         runtime=data.get("runtime", {}),
     )

@@ -19,8 +19,12 @@ from core.service import BaseService
 from core.audit import AuditLog
 from core.live_state import LiveState
 from core.command_center import CommandCenter
+from core.safety import IncidentRecorder, SLOMonitor
+from core.watchdog import WatchdogService
 from notifier.telegram import TelegramNotifier
 from ui.server import WebUIService
+from mlops.drift import DriftMonitorService
+from mlops.evaluator import ContinuousEvalService
 
 
 class Scheduler:
@@ -42,6 +46,7 @@ class Scheduler:
                 if self.energy is not None and not self.energy.should_run(svc.name, tick):
                     continue
                 svc.tick()
+                svc.heartbeat()
             if self._tick_ms > 0:
                 time.sleep(self._tick_ms / 1000.0)
 
@@ -65,20 +70,49 @@ class Node:
         self.raft = RaftController(self.config, self.metrics, self.gossip, self.audit)
         self.model_registry = ModelRegistry(self.config, self.metrics, self.raft, self.audit)
         self.inference = InferenceEngine(self.config, self.metrics, self.model_registry)
+        self.drift = DriftMonitorService(self.config, self.metrics, self.audit)
         self.tracker = TrackCoordinator(self.config, self.metrics, self.live_state)
         self.events = EventsProcessor(self.config, self.metrics)
+        self.slo_monitor = SLOMonitor(self.config, self.metrics, self.audit)
+        self.incident_recorder = IncidentRecorder(self.config, self.metrics, self.audit)
         self.store = EventStore(self.config, self.metrics, self.live_state)
         self.telegram = TelegramNotifier(self.config, self.metrics)
         self.sync = SyncEngine(self.config, self.metrics, self.energy)
         self.command_center = CommandCenter(self.config, self.metrics, self.energy, self.model_registry)
         self.web_ui = WebUIService(self.config, self.metrics, self.live_state)
+        self.continuous_eval = ContinuousEvalService(self.config, self.metrics, self.inference, self.audit)
+        self.watchdog = WatchdogService(
+            self.config,
+            self.metrics,
+            {
+                "ingest": self.ingest,
+                "inference": self.inference,
+                "drift_monitor": self.drift,
+                "tracker": self.tracker,
+                "events": self.events,
+                "slo_monitor": self.slo_monitor,
+                "incident_recorder": self.incident_recorder,
+                "event_store": self.store,
+                "sync": self.sync,
+                "gossip": self.gossip,
+                "raft": self.raft,
+                "model_registry": self.model_registry,
+                "command_center": self.command_center,
+                "web_ui": self.web_ui,
+                "continuous_eval": self.continuous_eval,
+            },
+            self.audit,
+        )
 
         self.scheduler = Scheduler(self.config, self.metrics, self.energy)
 
         self.ingest.set_next(self.inference)
-        self.inference.set_next(self.tracker)
+        self.inference.set_next(self.drift)
+        self.drift.set_next(self.tracker)
         self.tracker.set_next(self.events)
-        self.events.set_next(self.store)
+        self.events.set_next(self.slo_monitor)
+        self.slo_monitor.set_next(self.incident_recorder)
+        self.incident_recorder.set_next(self.store)
         self.store.set_next(self.telegram)
         self.telegram.set_next(self.sync)
         self.sync.set_next(self.gossip)
@@ -88,8 +122,11 @@ class Node:
         self.scheduler.register(
             self.ingest,
             self.inference,
+            self.drift,
             self.tracker,
             self.events,
+            self.slo_monitor,
+            self.incident_recorder,
             self.store,
             self.telegram,
             self.sync,
@@ -98,6 +135,8 @@ class Node:
             self.model_registry,
             self.command_center,
             self.web_ui,
+            self.continuous_eval,
+            self.watchdog,
         )
 
     def run(self) -> None:

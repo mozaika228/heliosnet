@@ -60,3 +60,9 @@ class CommandCenter(BaseService):
             self.model_registry.promote_canary()
         elif action == "model_rollback":
             self.model_registry.rollback("operator_command")
+        elif action == "model_shadow_on":
+            version = str(cmd.get("version", ""))
+            if version:
+                self.model_registry.set_shadow(version)
+        elif action == "model_shadow_off":
+            self.model_registry.clear_shadow()

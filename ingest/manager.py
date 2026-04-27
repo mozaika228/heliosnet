@@ -147,6 +147,8 @@ class IngestManager(BaseService):
         self._pending = {}
         self._group_id = 0
         self._resize_hw = None
+        self._manual_resize_hw = None
+        self._manual_fps_cap = 0
         self._last_profile = None
 
     def handle(self, item) -> None:
@@ -228,3 +230,19 @@ class IngestManager(BaseService):
                 self._resize_hw = (int(w), int(h))
             except Exception:
                 self._resize_hw = None
+        self._apply_overrides()
+
+    def set_runtime_overrides(self, fps_cap: int = 0, resolution: tuple[int, int] | None = None) -> None:
+        self._manual_fps_cap = int(max(0, fps_cap))
+        self._manual_resize_hw = resolution
+        self._apply_overrides()
+
+    def _apply_overrides(self) -> None:
+        if self._manual_fps_cap > 0:
+            for src in self._sources:
+                if src.cfg.max_fps <= 0:
+                    src.cfg.max_fps = self._manual_fps_cap
+                else:
+                    src.cfg.max_fps = min(src.cfg.max_fps, self._manual_fps_cap)
+        if self._manual_resize_hw is not None:
+            self._resize_hw = self._manual_resize_hw

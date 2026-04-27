@@ -7,6 +7,7 @@ class BaseService:
     def __init__(self, name: str):
         self.name = name
         self._next = None
+        self._last_heartbeat = 0.0
 
     def set_next(self, svc: "BaseService") -> None:
         self._next = svc
@@ -20,3 +21,9 @@ class BaseService:
 
     def tick(self) -> None:
         time.sleep(0.0)
+
+    def heartbeat(self) -> None:
+        self._last_heartbeat = time.time()
+
+    def last_heartbeat(self) -> float:
+        return self._last_heartbeat

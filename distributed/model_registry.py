@@ -59,6 +59,16 @@ class ModelRegistry(BaseService):
         model_path = str(row.get("path", self.config.inference.get("model", "")))
         return version, backend, model_path
 
+    def shadow_target(self) -> tuple[str, str, str] | None:
+        versions = self._state.get("versions", {})
+        shadow = self._state.get("shadow_version")
+        if not shadow or shadow not in versions:
+            return None
+        row = versions.get(shadow, {})
+        backend = str(row.get("backend", self.config.inference.get("backend", "stub")))
+        model_path = str(row.get("path", self.config.inference.get("model", "")))
+        return shadow, backend, model_path
+
     def propose_candidate(self, version: str, model_path: str) -> bool:
         if self.raft is not None and not self.raft.is_leader:
             return False
@@ -123,6 +133,22 @@ class ModelRegistry(BaseService):
         if self.audit is not None:
             self.audit.write("model_unpin", {})
 
+    def set_shadow(self, version: str) -> bool:
+        versions = self._state.get("versions", {})
+        if version not in versions:
+            return False
+        self._state["shadow_version"] = version
+        self._persist()
+        if self.audit is not None:
+            self.audit.write("model_shadow_on", {"version": version})
+        return True
+
+    def clear_shadow(self) -> None:
+        self._state["shadow_version"] = None
+        self._persist()
+        if self.audit is not None:
+            self.audit.write("model_shadow_off", {})
+
     def _consume_commands(self) -> None:
         if not self._commands_path.exists():
             return
@@ -170,6 +196,11 @@ class ModelRegistry(BaseService):
             self.pin(version)
         elif action == "unpin":
             self.unpin()
+        elif action == "shadow_on":
+            version = str(cmd.get("version", ""))
+            self.set_shadow(version)
+        elif action == "shadow_off":
+            self.clear_shadow()
 
     def _verify_command(self, cmd: dict) -> bool:
         if not self._require_signed:
@@ -190,13 +221,17 @@ class ModelRegistry(BaseService):
                 "current_version": "initial",
                 "canary_version": None,
                 "pinned_version": None,
+                "shadow_version": None,
                 "status": "stable",
                 "canary_started_at": 0.0,
             }
             self._path.write_text(json.dumps(initial, ensure_ascii=True, indent=2), encoding="utf-8")
             return initial
         try:
-            return json.loads(self._path.read_text(encoding="utf-8"))
+            state = json.loads(self._path.read_text(encoding="utf-8"))
+            if "shadow_version" not in state:
+                state["shadow_version"] = None
+            return state
         except Exception:
             backend = self.config.inference.get("backend", "stub")
             model = self.config.inference.get("model", "")
@@ -205,6 +240,7 @@ class ModelRegistry(BaseService):
                 "current_version": "initial",
                 "canary_version": None,
                 "pinned_version": None,
+                "shadow_version": None,
                 "status": "stable",
                 "canary_started_at": 0.0,
             }

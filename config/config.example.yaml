@@ -19,6 +19,8 @@ inference:
   preview_window: "HeliosNet"
   batch_size: 2
   batch_timeout_ms: 20
+  shadow_enabled: true
+  shadow_sample_rate: 10
   phone_id_enabled: false
   phone_catalog_dir: "./data/phone_catalog"
   phone_min_score: 0.45
@@ -89,6 +91,40 @@ observability:
   telegram_bot_token: ""
   telegram_chat_id: ""
   telegram_min_interval_sec: 5
+
+safety:
+  slo:
+    max_e2e_latency_ms_p95: 400
+    min_uptime_percent: 99.0
+    max_miss_rate: 0.25
+    window_size: 200
+    breach_cooldown_sec: 15
+  watchdog:
+    enabled: true
+    stale_heartbeat_sec: 5
+    action_cooldown_sec: 5
+    degraded_fps_cap: 8
+    safe_fps_cap: 4
+    degraded_resolution: "640x480"
+    safe_resolution: "416x416"
+  replay:
+    enabled: true
+    incidents_path: "./data/incidents"
+    image_quality: 85
+
+mlops:
+  drift:
+    enabled: true
+    ema_alpha: 0.03
+    data_threshold: 0.18
+    concept_threshold: 0.15
+    event_cooldown_sec: 30
+    state_path: "./data/drift_state.json"
+  evaluation:
+    enabled: false
+    benchmark_path: "./data/edge_benchmark.jsonl"
+    interval_sec: 600
+    max_cases: 20
 
 energy:
   simulated_percent: 55

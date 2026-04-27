@@ -69,6 +69,22 @@ observability:
   telegram_bot_token: ""
   telegram_chat_id: ""
   telegram_min_interval_sec: 1
+safety:
+  slo:
+    max_e2e_latency_ms_p95: 400
+    min_uptime_percent: 99.0
+    max_miss_rate: 0.5
+    window_size: 50
+    breach_cooldown_sec: 1
+  watchdog:
+    enabled: false
+  replay:
+    enabled: false
+mlops:
+  drift:
+    enabled: false
+  evaluation:
+    enabled: false
 energy:
   simulated_percent: 50
   profiles:

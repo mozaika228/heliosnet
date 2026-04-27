@@ -334,22 +334,41 @@ class UltralyticsRunner(BaseRunner):
         self._device = device
         self._conf = conf
         self._classes = classes
+        self._model_path = model_path
 
         if YOLO is None:
             print("[ultralytics] FAILED import ultralytics", flush=True)
             return
+        model_to_load = self._resolve_fallback_model(model_path)
         try:
-            self._model = YOLO(model_path)
+            self._model = YOLO(model_to_load)
             self._ready = True
+            self._model_path = model_to_load
             self._names = getattr(self._model, "names", {}) or {}
             print(
-                f"[ultralytics] READY model={model_path} device={device} conf={conf} classes={classes}",
+                f"[ultralytics] READY model={model_to_load} device={device} conf={conf} classes={classes}",
                 flush=True,
             )
         except Exception as e:
-            print(f"[ultralytics] FAILED model={model_path} err={e}", flush=True)
+            print(f"[ultralytics] FAILED model={model_to_load} err={e}", flush=True)
             self._ready = False
             self._names = {}
+
+    def _resolve_fallback_model(self, model_path: str) -> str:
+        p = Path(model_path)
+        if p.exists():
+            return model_path
+        name = p.name.lower()
+        if "-pose" in name and name.endswith(".pt"):
+            fallback_name = p.name.replace("-pose", "")
+            fallback = p.with_name(fallback_name)
+            if fallback.exists():
+                print(
+                    f"[ultralytics] pose model missing: {model_path}; fallback={fallback}",
+                    flush=True,
+                )
+                return str(fallback)
+        return model_path
 
     def infer(self, frame: Any) -> list[dict]:
         if not self._ready or frame is None:
@@ -371,6 +390,13 @@ class UltralyticsRunner(BaseRunner):
         boxes = r.boxes.xyxy.cpu().numpy()
         confs = r.boxes.conf.cpu().numpy() if r.boxes.conf is not None else None
         clss = r.boxes.cls.cpu().numpy() if r.boxes.cls is not None else None
+        kpts_xy = None
+        kpts_conf = None
+        if getattr(r, "keypoints", None) is not None:
+            if getattr(r.keypoints, "xy", None) is not None:
+                kpts_xy = r.keypoints.xy.cpu().numpy()
+            if getattr(r.keypoints, "conf", None) is not None:
+                kpts_conf = r.keypoints.conf.cpu().numpy()
         dets = []
         for i, box in enumerate(boxes):
             x1, y1, x2, y2 = box.tolist()
@@ -381,9 +407,16 @@ class UltralyticsRunner(BaseRunner):
                 if isinstance(self._names, dict)
                 else str(cls)
             )
-            dets.append(
-                {"bbox": [x1, y1, x2, y2], "conf": conf, "cls": cls, "label": name}
-            )
+            det = {"bbox": [x1, y1, x2, y2], "conf": conf, "cls": cls, "label": name}
+            if kpts_xy is not None and i < len(kpts_xy):
+                pts = []
+                for j, xy in enumerate(kpts_xy[i]):
+                    xk = float(xy[0])
+                    yk = float(xy[1])
+                    ck = float(kpts_conf[i][j]) if kpts_conf is not None and i < len(kpts_conf) else 1.0
+                    pts.append([xk, yk, ck])
+                det["keypoints"] = pts
+            dets.append(det)
         return dets
 
     def infer_batch(self, frames: list[Any]) -> list[list[dict]]:
@@ -462,9 +495,16 @@ class InferenceEngine(BaseService):
                     self._zone_shapes.append(("poly", poly))
         self._runner = self._build_runner(self._backend, self._model_path)
         self._target_version = "default"
+        self._shadow_runner = None
+        self._shadow_version = ""
+        self._shadow_enabled = bool(inf_cfg.get("shadow_enabled", True))
+        self._shadow_sample_rate = int(inf_cfg.get("shadow_sample_rate", 10))
+        self._processed_frames = 0
+        self._runtime_mode = "normal"
         if self.lifecycle is not None:
             self._target_version, self._backend, self._model_path = self.lifecycle.current_target()
             self._runner = self._build_runner(self._backend, self._model_path)
+            self._reload_shadow_runner()
 
     def handle(self, item) -> None:
         self._maybe_reload_runner()
@@ -487,6 +527,7 @@ class InferenceEngine(BaseService):
         batch = self._queue[: self._batch_size]
         self._queue = self._queue[self._batch_size :]
         frames = [it.get("frame") for it in batch]
+        self._processed_frames += len(frames)
         dets_list: list[list[dict]] = []
         if hasattr(self._runner, "infer_batch"):
             t0 = time.time()
@@ -499,14 +540,17 @@ class InferenceEngine(BaseService):
                 dets_list.append(self._runner.infer(f))
                 self.metrics.observe_inference(time.time() - t0)
         for item, dets in zip(batch, dets_list):
+            self._run_shadow_if_needed(item.get("frame"))
             self._finalize_item(item, dets)
         self._last_flush = time.time()
 
     def _process_single(self, item: dict) -> None:
         frame = item.get("frame")
+        self._processed_frames += 1
         t0 = time.time()
         dets = self._runner.infer(frame)
         self.metrics.observe_inference(time.time() - t0)
+        self._run_shadow_if_needed(frame)
         self._finalize_item(item, dets)
 
     def _finalize_item(self, item: dict, dets: list[dict]) -> None:
@@ -523,9 +567,27 @@ class InferenceEngine(BaseService):
         self.metrics.add_detections(source_id, dets)
         self.push(item)
 
+    def set_runtime_mode(self, mode: str) -> None:
+        m = str(mode).lower()
+        self._runtime_mode = m
+        if m == "normal":
+            self._nms_iou = float(getattr(self.config, "inference", {}).get("nms_iou", self._nms_iou))
+            return
+        if m == "degraded":
+            self._nms_iou = max(self._nms_iou, 0.4)
+            return
+        # safe mode
+        self._nms_iou = max(self._nms_iou, 0.5)
+        self._batch_size = 1
+
     def _show_preview(self, frame: np.ndarray, detections: list[dict], source_id: str) -> None:
         vis = frame.copy()
         window = f"{self._preview_window}::{source_id}"
+        skeleton_edges = [
+            (5, 6), (5, 7), (7, 9), (6, 8), (8, 10),
+            (5, 11), (6, 12), (11, 12), (11, 13), (13, 15),
+            (12, 14), (14, 16),
+        ]
         for shape_type, data in self._zone_shapes:
             if shape_type == "rect":
                 x1, y1, x2, y2 = [int(v) for v in data]
@@ -555,6 +617,32 @@ class InferenceEngine(BaseService):
                 1,
                 cv2.LINE_AA,
             )
+            keypoints = det.get("keypoints", [])
+            if isinstance(keypoints, list) and keypoints:
+                for kp in keypoints:
+                    if not isinstance(kp, (list, tuple)) or len(kp) < 2:
+                        continue
+                    xk, yk = int(kp[0]), int(kp[1])
+                    ck = float(kp[2]) if len(kp) > 2 else 1.0
+                    if ck < 0.35:
+                        continue
+                    cv2.circle(vis, (xk, yk), 3, (0, 0, 255), -1)
+                for a, b in skeleton_edges:
+                    if a >= len(keypoints) or b >= len(keypoints):
+                        continue
+                    ka = keypoints[a]
+                    kb = keypoints[b]
+                    if len(ka) < 3 or len(kb) < 3:
+                        continue
+                    if float(ka[2]) < 0.35 or float(kb[2]) < 0.35:
+                        continue
+                    cv2.line(
+                        vis,
+                        (int(ka[0]), int(ka[1])),
+                        (int(kb[0]), int(kb[1])),
+                        (0, 128, 255),
+                        2,
+                    )
         cv2.imshow(window, vis)
         if cv2.waitKey(1) & 0xFF == ord("q"):
             raise SystemExit
@@ -615,7 +703,43 @@ class InferenceEngine(BaseService):
         self._backend = backend
         self._model_path = model_path
         self._runner = self._build_runner(self._backend, self._model_path)
+        self._reload_shadow_runner()
         print(
             f"[inference] model switch version={version} backend={backend} model={model_path}",
             flush=True,
         )
+
+    def _reload_shadow_runner(self) -> None:
+        if self.lifecycle is None or not self._shadow_enabled:
+            self._shadow_runner = None
+            self._shadow_version = ""
+            return
+        target = self.lifecycle.shadow_target()
+        if not target:
+            self._shadow_runner = None
+            self._shadow_version = ""
+            return
+        version, backend, model_path = target
+        if version == self._target_version:
+            self._shadow_runner = None
+            self._shadow_version = ""
+            return
+        self._shadow_runner = self._build_runner(str(backend).lower(), str(model_path))
+        self._shadow_version = version
+        print(
+            f"[inference] shadow mode version={version} backend={backend} model={model_path}",
+            flush=True,
+        )
+
+    def _run_shadow_if_needed(self, frame: Any) -> None:
+        if self._shadow_runner is None:
+            return
+        if self._shadow_sample_rate <= 0:
+            return
+        if self._processed_frames % self._shadow_sample_rate != 0:
+            return
+        try:
+            _ = self._shadow_runner.infer(frame)
+            self.metrics.inc_shadow(self._shadow_version or "shadow")
+        except Exception:
+            return

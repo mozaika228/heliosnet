@@ -188,6 +188,8 @@ Append JSON lines to `./data/model_commands.jsonl`:
 {"action":"rollback"}
 {"action":"pin","version":"v2"}
 {"action":"unpin"}
+{"action":"shadow_on","version":"v2"}
+{"action":"shadow_off"}
 ```
 
 ### 12. Enterprise security and audit
@@ -207,6 +209,87 @@ python scripts/sign_model_command.py --secret "change-me" --action register --ve
 ```
 
 To force rollback during canary, create `./data/model_rollback.flag`.
+
+### 12.1 Safety-Critical core
+`config/config.yaml`:
+```yaml
+safety:
+  slo:
+    max_e2e_latency_ms_p95: 400
+    min_uptime_percent: 99.0
+    max_miss_rate: 0.25
+  watchdog:
+    enabled: true
+    stale_heartbeat_sec: 5
+  replay:
+    enabled: true
+    incidents_path: "./data/incidents"
+```
+
+Deterministic replay check:
+```bash
+python -m core.replay --incident <incident_id>
+```
+
+### 12.2 Edge MLOps
+`config/config.yaml`:
+```yaml
+inference:
+  shadow_enabled: true
+  shadow_sample_rate: 10
+
+mlops:
+  drift:
+    enabled: true
+    data_threshold: 0.18
+    concept_threshold: 0.15
+  evaluation:
+    enabled: true
+    benchmark_path: "./data/edge_benchmark.jsonl"
+    interval_sec: 600
+```
+
+Benchmark row format (`edge_benchmark.jsonl`):
+```json
+{"image":"./data/bench/frame_001.jpg","expected_count":1,"expected_class":0}
+```
+
+### 13. Custom classes (your dataset)
+Create dataset skeleton:
+```bash
+python scripts/create_yolo_dataset.py --name my_objects --classes "pen,glasses,phone"
+```
+
+Annotate images in:
+- `data/datasets/my_objects/images/{train,val,test}`
+- `data/datasets/my_objects/labels/{train,val,test}`
+
+Train:
+```bash
+python scripts/train_yolo.py --data data/datasets/my_objects/data.yaml --model yolo11n.pt --epochs 50 --device cpu
+```
+
+Use trained weights in config:
+```yaml
+inference:
+  backend: "ultralytics"
+  model: "runs/heliosnet/custom_train/weights/best.pt"
+```
+
+### 14. Human pose detection
+Download pose model:
+```bash
+python -c "from ultralytics import YOLO; YOLO('yolo11n-pose.pt')"
+```
+
+Run HeliosNet in pose mode:
+```bash
+powershell -ExecutionPolicy Bypass -File .\scripts\run_local.ps1 -Config .\config\pose.yaml
+```
+
+Notes:
+- pose keypoints are attached to detections as `keypoints: [[x, y, conf], ...]`
+- use `inference.preview: true` and `tracker.preview: false` to see skeletons
 
 ---
 
