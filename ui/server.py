@@ -121,6 +121,8 @@ def _html() -> str:
     .pill{padding:8px;border-radius:10px;background:#0f1b23;border:1px solid var(--line)}
     .events{height:300px;overflow:auto;font-size:13px}
     .evt{padding:8px;border-bottom:1px solid #1f3340}
+    .evt.critical{background:rgba(255,93,115,.12);border-left:3px solid #ff5d73}
+    .evt.high{background:rgba(255,184,74,.12);border-left:3px solid #ffb84a}
     .cmd{display:grid;grid-template-columns:1fr 1fr;gap:8px}
     button{background:#17303f;color:var(--ink);border:1px solid #2a4b5f;border-radius:10px;padding:10px 12px;cursor:pointer}
     button:hover{filter:brightness(1.1)}
@@ -184,7 +186,12 @@ async function loadState(){
 function addEvent(e){
   const box=document.getElementById('events');
   const el=document.createElement('div'); el.className='evt';
-  el.textContent=`${new Date((e.ts||0)*1000).toLocaleTimeString()} ${e.source_id||''} ${e.name||''}`;
+  const name=(e.name||'');
+  if(name==='FALL_ALERT') el.classList.add('critical');
+  else if(name==='SLO_BREACH' || name==='DRIFT_ALERT') el.classList.add('high');
+  const p=e.payload||{};
+  const pose=p.pose_state?` pose=${p.pose_state}`:'';
+  el.textContent=`${new Date((e.ts||0)*1000).toLocaleTimeString()} ${e.source_id||''} ${name}${pose}`;
   box.prepend(el); while(box.children.length>120) box.removeChild(box.lastChild);
 }
 function stream(){

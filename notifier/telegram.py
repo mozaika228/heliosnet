@@ -36,7 +36,19 @@ class TelegramNotifier(BaseService):
         name = str(evt.get("name", "event"))
         src = str(evt.get("source_id", "source"))
         payload = evt.get("payload", {}) or {}
-        text = f"HeliosNet alert\\n{name}\\nsource={src}\\npayload={json.dumps(payload, ensure_ascii=True)}"
+        if name == "FALL_ALERT":
+            level = "CRITICAL"
+        elif name in ("SLO_BREACH", "DRIFT_ALERT"):
+            level = "HIGH"
+        else:
+            level = "INFO"
+        text = (
+            f"HeliosNet alert\\n"
+            f"level={level}\\n"
+            f"name={name}\\n"
+            f"source={src}\\n"
+            f"payload={json.dumps(payload, ensure_ascii=True)}"
+        )
         self._send_text(text)
 
     def _send_text(self, text: str) -> None:
