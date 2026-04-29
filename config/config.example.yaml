@@ -57,6 +57,10 @@ events:
       name: "crowd"
       threshold: 3
       prefer_tracks: true
+    - type: "pose_state"
+      name: "pose_monitor"
+      classes: [0]
+      min_score: 0.55
   store_path: "./data/events.jsonl"
   per_source_files: true
   csv_path: "./data/events.csv"

@@ -262,6 +262,20 @@ Benchmark row format (`edge_benchmark.jsonl`):
 {"image":"./data/bench/frame_001.jpg","expected_count":1,"expected_class":0}
 ```
 
+### 12.4 Pose state events
+With pose model enabled, add rule:
+```yaml
+events:
+  rules:
+    - type: "pose_state"
+      name: "pose_monitor"
+      classes: [0]
+      min_score: 0.55
+```
+
+Generated events include `pose_state` (`standing`, `sitting`, `hands_up`, `falling`, `unknown`).
+`FALL_ALERT` is emitted automatically when `pose_state=falling`.
+
 ### 12.3 Fusion + Distributed control plane
 `config/config.yaml`:
 ```yaml

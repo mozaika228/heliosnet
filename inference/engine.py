@@ -154,6 +154,37 @@ def _nms(dets: list[dict], iou_thr: float) -> list[dict]:
     return [dets[i] for i in keep]
 
 
+def _pose_state_from_keypoints(kps: list[list[float]], bbox: list[float]) -> str | None:
+    if not kps or len(kps) < 17 or not bbox or len(bbox) != 4:
+        return None
+    x1, y1, x2, y2 = bbox
+    w = max(1.0, x2 - x1)
+    h = max(1.0, y2 - y1)
+
+    def _ok(i: int) -> bool:
+        return i < len(kps) and len(kps[i]) >= 3 and float(kps[i][2]) >= 0.35
+
+    if not (_ok(5) and _ok(6) and _ok(11) and _ok(12)):
+        return None
+
+    sh_y = (float(kps[5][1]) + float(kps[6][1])) / 2.0
+    hip_y = (float(kps[11][1]) + float(kps[12][1])) / 2.0
+    torso = max(1.0, hip_y - sh_y)
+    aspect = w / h
+    if aspect > 1.2 and torso < 0.45 * h:
+        return "falling"
+    if _ok(9) and _ok(10) and float(kps[9][1]) < sh_y and float(kps[10][1]) < sh_y:
+        return "hands_up"
+    if _ok(13) and _ok(14) and _ok(15) and _ok(16):
+        knee_y = (float(kps[13][1]) + float(kps[14][1])) / 2.0
+        ankle_y = (float(kps[15][1]) + float(kps[16][1])) / 2.0
+        if sh_y < hip_y < knee_y < ankle_y and (ankle_y - hip_y) > 0.8 * torso:
+            return "standing"
+        if sh_y < hip_y < knee_y and (knee_y - hip_y) < 0.6 * torso:
+            return "sitting"
+    return "unknown"
+
+
 class BaseRunner:
     def infer(self, frame: Any) -> list[dict]:
         raise NotImplementedError
@@ -559,6 +590,11 @@ class InferenceEngine(BaseService):
         if self._classes and dets:
             dets = [d for d in dets if int(d.get("cls", -1)) in self._classes]
         dets = _nms(dets, self._nms_iou)
+        for d in dets:
+            if int(d.get("cls", -1)) == 0 and d.get("keypoints"):
+                pose_state = _pose_state_from_keypoints(d.get("keypoints", []), d.get("bbox", []))
+                if pose_state:
+                    d["pose_state"] = pose_state
         if self._phone_matcher is not None and isinstance(frame, np.ndarray):
             self._annotate_phone_models(frame, dets)
         item["detections"] = dets
@@ -606,6 +642,8 @@ class InferenceEngine(BaseService):
             name = det.get("label") or str(cls)
             if det.get("phone_model_guess"):
                 name = f"{name}->{det.get('phone_model_guess')}"
+            if det.get("pose_state"):
+                name = f"{name}|{det.get('pose_state')}"
             label = f"{name}:{conf:.2f}"
             cv2.putText(
                 vis,

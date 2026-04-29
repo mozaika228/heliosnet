@@ -40,6 +40,54 @@ def _iter_objects(item: dict, prefer_tracks: bool):
     return item.get("detections", [])
 
 
+def _pose_state_from_keypoints(kps: list[list[float]], bbox: list[float]) -> tuple[str, float] | None:
+    # COCO keypoints indices used by YOLO pose:
+    # 0 nose, 5/6 shoulders, 9/10 wrists, 11/12 hips, 13/14 knees, 15/16 ankles
+    if not kps or len(kps) < 17 or not bbox or len(bbox) != 4:
+        return None
+    x1, y1, x2, y2 = bbox
+    w = max(1.0, x2 - x1)
+    h = max(1.0, y2 - y1)
+
+    def _ok(i: int) -> bool:
+        return i < len(kps) and len(kps[i]) >= 3 and float(kps[i][2]) >= 0.35
+
+    if not (_ok(5) and _ok(6) and _ok(11) and _ok(12)):
+        return None
+
+    sh_y = (float(kps[5][1]) + float(kps[6][1])) / 2.0
+    hip_y = (float(kps[11][1]) + float(kps[12][1])) / 2.0
+    torso = max(1.0, hip_y - sh_y)
+    aspect = w / h
+
+    wrists_up = False
+    if _ok(9) and _ok(10):
+        wrists_up = float(kps[9][1]) < sh_y and float(kps[10][1]) < sh_y
+
+    knees_ok = _ok(13) and _ok(14)
+    ankles_ok = _ok(15) and _ok(16)
+    standing = False
+    sitting = False
+    if knees_ok and ankles_ok:
+        knee_y = (float(kps[13][1]) + float(kps[14][1])) / 2.0
+        ankle_y = (float(kps[15][1]) + float(kps[16][1])) / 2.0
+        standing = sh_y < hip_y < knee_y < ankle_y and (ankle_y - hip_y) > 0.8 * torso
+        sitting = sh_y < hip_y < knee_y and (knee_y - hip_y) < 0.6 * torso
+
+    # simple fall heuristic: horizontal body + compressed torso + wide bbox
+    fall = aspect > 1.2 and torso < 0.45 * h
+
+    if fall:
+        return "falling", min(1.0, aspect / 2.0)
+    if wrists_up:
+        return "hands_up", 0.75
+    if standing:
+        return "standing", 0.8
+    if sitting:
+        return "sitting", 0.7
+    return "unknown", 0.5
+
+
 @dataclass
 class Event:
     name: str
@@ -116,6 +164,46 @@ class ZoneEntryRule:
         return events
 
 
+class PoseStateRule:
+    def __init__(self, name: str, classes: list[int], min_score: float):
+        self.name = name
+        self.classes = classes
+        self.min_score = min_score
+
+    def apply(self, item: dict) -> list[Event]:
+        out: list[Event] = []
+        dets = item.get("detections", []) or []
+        for d in dets:
+            cls = int(d.get("cls", -1))
+            if self.classes and cls not in self.classes:
+                continue
+            label = str(d.get("label", "")).lower()
+            if not self.classes and label and label != "person" and cls != 0:
+                continue
+            pose = _pose_state_from_keypoints(d.get("keypoints", []), d.get("bbox", []))
+            if pose is None:
+                continue
+            state, score = pose
+            if score < self.min_score:
+                continue
+            payload = {
+                "pose_state": state,
+                "score": round(float(score), 4),
+                "class_id": cls,
+                "label": d.get("label"),
+            }
+            out.append(Event(self.name, time.time(), payload))
+            if state == "falling":
+                out.append(
+                    Event(
+                        "FALL_ALERT",
+                        time.time(),
+                        {"pose_state": state, "score": round(float(score), 4)},
+                    )
+                )
+        return out
+
+
 class EventsProcessor(BaseService):
     def __init__(self, config, metrics):
         super().__init__("events")
@@ -144,6 +232,14 @@ class EventsProcessor(BaseService):
                     self._rules.append(
                         ZoneEntryRule(name, rect, poly, prefer_tracks, classes)
                     )
+            elif rtype == "pose_state":
+                self._rules.append(
+                    PoseStateRule(
+                        name=name,
+                        classes=classes,
+                        min_score=float(rule.get("min_score", 0.55)),
+                    )
+                )
 
     def handle(self, item) -> None:
         events = []
