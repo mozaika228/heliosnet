@@ -16,6 +16,7 @@ from distributed.raft import RaftController
 from distributed.model_registry import ModelRegistry
 from distributed.policy import PolicyEngine
 from distributed.config_consensus import ConfigConsensusService
+from distributed.zero_trust_service import ZeroTrustService
 from observability.metrics import Metrics
 from core.service import BaseService
 from core.audit import AuditLog
@@ -74,6 +75,7 @@ class Node:
         self.raft = RaftController(self.config, self.metrics, self.gossip, self.audit)
         self.policy = PolicyEngine(self.config, self.metrics, self.audit)
         self.config_consensus = ConfigConsensusService(self.config, self.metrics, self.raft, self.audit)
+        self.zero_trust = ZeroTrustService(self.config, self.metrics, self.audit)
         self.model_registry = ModelRegistry(self.config, self.metrics, self.raft, self.audit)
         self.inference = InferenceEngine(self.config, self.metrics, self.model_registry)
         self.drift = DriftMonitorService(self.config, self.metrics, self.audit)
@@ -113,6 +115,7 @@ class Node:
                 "model_registry": self.model_registry,
                 "policy": self.policy,
                 "config_consensus": self.config_consensus,
+                "zero_trust": self.zero_trust,
                 "command_center": self.command_center,
                 "web_ui": self.web_ui,
                 "continuous_eval": self.continuous_eval,
@@ -153,6 +156,7 @@ class Node:
             self.raft,
             self.policy,
             self.config_consensus,
+            self.zero_trust,
             self.model_registry,
             self.command_center,
             self.web_ui,

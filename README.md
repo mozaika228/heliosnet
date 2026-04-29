@@ -50,6 +50,7 @@ heliosnet/
 |   `-- config_consensus.py  # Config apply log + consensus epoch state
 |   `-- security.py          # HMAC signatures for control/messages
 |   `-- zero_trust.py        # mTLS readiness + artifact hash verification
+|   `-- zero_trust_service.py# Key rotation + artifact verification loop
 |
 |-- fusion/
 |   `-- coordinator.py       # Multi-sensor sync/fusion (RGB/thermal baseline)
@@ -271,12 +272,15 @@ fusion:
   sources:
     src-00: {sensor: "rgb"}
     src-01: {sensor: "thermal"}
+    src-02: {sensor: "depth"}
+    src-03: {sensor: "radar"}
 
 control_plane:
   policy_enabled: true
   policy_path: "./data/policy.json"
   config_commands_path: "./data/config_commands.jsonl"
   mtls_enabled: false
+  key_rotation_interval_sec: 86400
 ```
 
 Operator command with policy + consensus:

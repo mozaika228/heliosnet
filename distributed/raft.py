@@ -35,6 +35,7 @@ class RaftController(BaseService):
         self._pending: list[dict] = []
         self._acks: dict[int, set[str]] = {}
         self._min_cluster_size = int(dist_cfg.get("raft_min_cluster_size", 1))
+        self._appliers: list = []
         self._load_state()
 
     @property
@@ -92,6 +93,11 @@ class RaftController(BaseService):
         self._broadcast_append(entry)
         return True
 
+    def register_apply_handler(self, handler) -> None:
+        if handler is None:
+            return
+        self._appliers.append(handler)
+
     def _start_election(self, now: float) -> None:
         self._term += 1
         # In this foundation phase, votes are derived from known alive peers.
@@ -122,6 +128,7 @@ class RaftController(BaseService):
             if votes >= quorum:
                 entry["committed"] = True
                 self._commit_index = max(self._commit_index, idx)
+                self._apply_entry(entry)
             else:
                 remaining.append(entry)
         self._pending = remaining
@@ -180,6 +187,10 @@ class RaftController(BaseService):
                     self._leader_id = src
                     self._last_heartbeat = now
                     self._election_timeout = self._new_timeout()
+                    commit_index = int(payload.get("commit_index", self._commit_index))
+                    if commit_index > self._commit_index:
+                        self._commit_index = commit_index
+                        self._apply_committed_from_log()
             elif mtype == "RAFT_APPEND":
                 if term >= self._term:
                     self._term = term
@@ -200,7 +211,12 @@ class RaftController(BaseService):
         if self.gossip is None:
             return
         self.gossip.broadcast_control(
-            {"type": "RAFT_HEARTBEAT", "term": self._term, "leader_id": self.config.node_id}
+            {
+                "type": "RAFT_HEARTBEAT",
+                "term": self._term,
+                "leader_id": self.config.node_id,
+                "commit_index": self._commit_index,
+            }
         )
 
     def _broadcast_append(self, entry: dict) -> None:
@@ -261,3 +277,53 @@ class RaftController(BaseService):
         self._leader_id = payload.get("leader_id")
         self._last_log_index = int(payload.get("last_log_index", 0))
         self._commit_index = int(payload.get("commit_index", 0))
+        self._apply_committed_from_log()
+
+    def _apply_entry(self, entry: dict) -> None:
+        cmd = entry.get("command", {}) or {}
+        for fn in self._appliers:
+            try:
+                fn(cmd)
+            except Exception:
+                continue
+
+    def _apply_committed_from_log(self) -> None:
+        if not self._log_path.exists() or self._commit_index <= 0:
+            return
+        with self._log_path.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except Exception:
+                    continue
+                idx = int(row.get("index", 0))
+                if idx <= 0 or idx > self._commit_index:
+                    continue
+                if row.get("applied", False):
+                    continue
+                self._apply_entry(row)
+                row["applied"] = True
+                self._mark_row(idx, row)
+
+    def _mark_row(self, target_idx: int, new_row: dict) -> None:
+        if not self._log_path.exists():
+            return
+        rows = []
+        with self._log_path.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except Exception:
+                    continue
+                if int(row.get("index", 0)) == target_idx:
+                    row = new_row
+                rows.append(row)
+        with self._log_path.open("w", encoding="utf-8") as f:
+            for row in rows:
+                f.write(json.dumps(row, ensure_ascii=True) + "\n")

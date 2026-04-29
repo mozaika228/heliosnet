@@ -95,6 +95,28 @@ class ImageSource(BaseSource):
         }
 
 
+class JsonSource(BaseSource):
+    def __init__(self, cfg: SourceConfig, path: Path) -> None:
+        super().__init__(cfg)
+        self._path = path
+
+    def read(self) -> dict | None:
+        if not self._rate_ok():
+            return None
+        if not self._path.exists():
+            return None
+        try:
+            payload = self._path.read_text(encoding="utf-8")
+        except Exception:
+            return None
+        return {
+            "ts": time.time(),
+            "source_id": self.cfg.source_id,
+            "frame": None,
+            "meta": {"radar": payload, "path": str(self._path)},
+        }
+
+
 def build_sources(entries: list[str], max_fps: int, loop: bool) -> list[BaseSource]:
     sources: list[BaseSource] = []
     for idx, entry in enumerate(entries):
@@ -114,6 +136,14 @@ def build_sources(entries: list[str], max_fps: int, loop: bool) -> list[BaseSour
             path = Path(entry.split(":", 1)[1])
             images = sorted([p for p in path.glob("*") if p.is_file()])
             sources.append(ImageSource(cfg, images))
+            continue
+        if entry.startswith("depth:"):
+            path = Path(entry.split(":", 1)[1])
+            sources.append(ImageSource(cfg, [path]))
+            continue
+        if entry.startswith("radar:"):
+            path = Path(entry.split(":", 1)[1])
+            sources.append(JsonSource(cfg, path))
             continue
         if entry.startswith("file:"):
             uri = entry.split(":", 1)[1]

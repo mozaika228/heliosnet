@@ -21,6 +21,8 @@ class ConfigConsensusService(BaseService):
         self._commands_path.parent.mkdir(parents=True, exist_ok=True)
         self._last_size = 0
         self._state = self._load_state()
+        if self.raft is not None:
+            self.raft.register_apply_handler(self._apply_from_raft)
 
     def handle(self, item) -> None:
         self.push(item)
@@ -50,13 +52,23 @@ class ConfigConsensusService(BaseService):
         patch = cmd.get("patch", {}) or {}
         if self.raft is not None and self.raft.is_leader:
             self.raft.propose({"type": "config_apply", "patch": patch, "ts": time.time()})
+            return True
+        self._commit_patch(patch)
+        return True
+
+    def _apply_from_raft(self, command: dict) -> None:
+        if str(command.get("type", "")).lower() != "config_apply":
+            return
+        patch = command.get("patch", {}) or {}
+        self._commit_patch(patch)
+
+    def _commit_patch(self, patch: dict) -> None:
         self._state["epoch"] = int(self._state.get("epoch", 0)) + 1
         self._state["last_patch"] = patch
         self._state["last_ts"] = time.time()
         self._persist()
         if self.audit is not None:
             self.audit.write("config_apply", {"epoch": self._state["epoch"]})
-        return True
 
     def _load_state(self) -> dict:
         if not self._state_path.exists():
@@ -70,4 +82,3 @@ class ConfigConsensusService(BaseService):
 
     def _persist(self) -> None:
         self._state_path.write_text(json.dumps(self._state, ensure_ascii=True, indent=2), encoding="utf-8")
-

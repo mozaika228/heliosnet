@@ -101,6 +101,8 @@ control_plane:
   tls_key_path: "./secrets/node.key"
   tls_ca_path: "./secrets/ca.crt"
   artifact_manifest_path: "./data/artifacts.json"
+  rotation_state_path: "./data/key_rotation.json"
+  key_rotation_interval_sec: 86400
 
 observability:
   metrics: true
