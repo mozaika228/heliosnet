@@ -185,6 +185,41 @@ def _pose_state_from_keypoints(kps: list[list[float]], bbox: list[float]) -> str
     return "unknown"
 
 
+def _gesture_state_from_keypoints(kps: list[list[float]]) -> str | None:
+    if not kps or len(kps) < 11:
+        return None
+
+    def _ok(i: int) -> bool:
+        return i < len(kps) and len(kps[i]) >= 3 and float(kps[i][2]) >= 0.35
+
+    if not all(_ok(i) for i in (5, 6, 9, 10)):
+        return None
+
+    l_sh_x, l_sh_y = float(kps[5][0]), float(kps[5][1])
+    r_sh_x, r_sh_y = float(kps[6][0]), float(kps[6][1])
+    l_wr_x, l_wr_y = float(kps[9][0]), float(kps[9][1])
+    r_wr_x, r_wr_y = float(kps[10][0]), float(kps[10][1])
+
+    left_up = l_wr_y < l_sh_y
+    right_up = r_wr_y < r_sh_y
+    if left_up and right_up:
+        return "hands_up"
+    if left_up:
+        return "left_hand_up"
+    if right_up:
+        return "right_hand_up"
+
+    shoulder_span = max(1.0, abs(r_sh_x - l_sh_x))
+    if abs(l_wr_x - r_sh_x) < 0.45 * shoulder_span and abs(r_wr_x - l_sh_x) < 0.45 * shoulder_span:
+        return "arms_crossed"
+
+    y_close = abs(l_wr_y - l_sh_y) < 25 and abs(r_wr_y - r_sh_y) < 25
+    wide = (l_wr_x < l_sh_x - 0.4 * shoulder_span) and (r_wr_x > r_sh_x + 0.4 * shoulder_span)
+    if y_close and wide:
+        return "t_pose"
+    return None
+
+
 class BaseRunner:
     def infer(self, frame: Any) -> list[dict]:
         raise NotImplementedError
@@ -595,6 +630,9 @@ class InferenceEngine(BaseService):
                 pose_state = _pose_state_from_keypoints(d.get("keypoints", []), d.get("bbox", []))
                 if pose_state:
                     d["pose_state"] = pose_state
+                gesture_state = _gesture_state_from_keypoints(d.get("keypoints", []))
+                if gesture_state:
+                    d["gesture_state"] = gesture_state
         if self._phone_matcher is not None and isinstance(frame, np.ndarray):
             self._annotate_phone_models(frame, dets)
         item["detections"] = dets
@@ -644,6 +682,8 @@ class InferenceEngine(BaseService):
                 name = f"{name}->{det.get('phone_model_guess')}"
             if det.get("pose_state"):
                 name = f"{name}|{det.get('pose_state')}"
+            if det.get("gesture_state"):
+                name = f"{name}|{det.get('gesture_state')}"
             label = f"{name}:{conf:.2f}"
             cv2.putText(
                 vis,

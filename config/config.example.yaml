@@ -61,6 +61,10 @@ events:
       name: "pose_monitor"
       classes: [0]
       min_score: 0.55
+    - type: "gesture_state"
+      name: "gesture_monitor"
+      classes: [0]
+      min_score: 0.6
   store_path: "./data/events.jsonl"
   per_source_files: true
   csv_path: "./data/events.csv"

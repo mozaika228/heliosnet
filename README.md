@@ -276,6 +276,18 @@ events:
 Generated events include `pose_state` (`standing`, `sitting`, `hands_up`, `falling`, `unknown`).
 `FALL_ALERT` is emitted automatically when `pose_state=falling`.
 
+Gesture events from pose keypoints:
+```yaml
+events:
+  rules:
+    - type: "gesture_state"
+      name: "gesture_monitor"
+      classes: [0]
+      min_score: 0.6
+```
+Detected gestures: `hands_up`, `left_hand_up`, `right_hand_up`, `arms_crossed`, `t_pose`.
+Each detected gesture emits `GESTURE_ALERT`.
+
 ### 12.3 Fusion + Distributed control plane
 `config/config.yaml`:
 ```yaml

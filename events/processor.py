@@ -88,6 +88,50 @@ def _pose_state_from_keypoints(kps: list[list[float]], bbox: list[float]) -> tup
     return "unknown", 0.5
 
 
+def _gesture_state_from_keypoints(kps: list[list[float]]) -> tuple[str, float] | None:
+    # COCO keypoints: shoulders 5/6, elbows 7/8, wrists 9/10
+    if not kps or len(kps) < 11:
+        return None
+
+    def _ok(i: int) -> bool:
+        return i < len(kps) and len(kps[i]) >= 3 and float(kps[i][2]) >= 0.35
+
+    need = [5, 6, 9, 10]
+    if not all(_ok(i) for i in need):
+        return None
+
+    l_sh_y = float(kps[5][1])
+    r_sh_y = float(kps[6][1])
+    l_wr_x, l_wr_y = float(kps[9][0]), float(kps[9][1])
+    r_wr_x, r_wr_y = float(kps[10][0]), float(kps[10][1])
+    l_sh_x = float(kps[5][0])
+    r_sh_x = float(kps[6][0])
+
+    left_up = l_wr_y < l_sh_y
+    right_up = r_wr_y < r_sh_y
+    if left_up and right_up:
+        return "hands_up", 0.85
+    if left_up:
+        return "left_hand_up", 0.75
+    if right_up:
+        return "right_hand_up", 0.75
+
+    # approximate crossed arms: wrists near opposite shoulder zones
+    shoulder_span = max(1.0, abs(r_sh_x - l_sh_x))
+    cross_left = abs(l_wr_x - r_sh_x) < 0.45 * shoulder_span
+    cross_right = abs(r_wr_x - l_sh_x) < 0.45 * shoulder_span
+    if cross_left and cross_right:
+        return "arms_crossed", 0.7
+
+    # rough T-pose: wrists near shoulder y and expanded x
+    y_close = abs(l_wr_y - l_sh_y) < 25 and abs(r_wr_y - r_sh_y) < 25
+    wide = (l_wr_x < l_sh_x - 0.4 * shoulder_span) and (r_wr_x > r_sh_x + 0.4 * shoulder_span)
+    if y_close and wide:
+        return "t_pose", 0.65
+
+    return None
+
+
 @dataclass
 class Event:
     name: str
@@ -204,6 +248,39 @@ class PoseStateRule:
         return out
 
 
+class GestureStateRule:
+    def __init__(self, name: str, classes: list[int], min_score: float):
+        self.name = name
+        self.classes = classes
+        self.min_score = min_score
+
+    def apply(self, item: dict) -> list[Event]:
+        out: list[Event] = []
+        dets = item.get("detections", []) or []
+        for d in dets:
+            cls = int(d.get("cls", -1))
+            if self.classes and cls not in self.classes:
+                continue
+            label = str(d.get("label", "")).lower()
+            if not self.classes and label and label != "person" and cls != 0:
+                continue
+            gesture = _gesture_state_from_keypoints(d.get("keypoints", []))
+            if gesture is None:
+                continue
+            state, score = gesture
+            if score < self.min_score:
+                continue
+            payload = {
+                "gesture_state": state,
+                "score": round(float(score), 4),
+                "class_id": cls,
+                "label": d.get("label"),
+            }
+            out.append(Event(self.name, time.time(), payload))
+            out.append(Event("GESTURE_ALERT", time.time(), payload))
+        return out
+
+
 class EventsProcessor(BaseService):
     def __init__(self, config, metrics):
         super().__init__("events")
@@ -238,6 +315,14 @@ class EventsProcessor(BaseService):
                         name=name,
                         classes=classes,
                         min_score=float(rule.get("min_score", 0.55)),
+                    )
+                )
+            elif rtype == "gesture_state":
+                self._rules.append(
+                    GestureStateRule(
+                        name=name,
+                        classes=classes,
+                        min_score=float(rule.get("min_score", 0.6)),
                     )
                 )
 
