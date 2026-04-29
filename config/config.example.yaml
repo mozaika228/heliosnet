@@ -9,6 +9,16 @@ ingest:
   sync: true
   sync_timeout_ms: 200
 
+fusion:
+  enabled: false
+  strategy: "late"   # late | early_rgb_thermal
+  sync_window_ms: 120
+  sources:
+    src-00:
+      sensor: "rgb"
+    src-01:
+      sensor: "thermal"
+
 inference:
   backend: "ultralytics"
   model: "C:/Users/Admin/Desktop/model/yolo11n.pt"
@@ -80,6 +90,17 @@ distributed:
   canary_duration_sec: 120
   rollback_flag_path: "./data/model_rollback.flag"
   audit_log_path: "./data/audit_log.jsonl"
+
+control_plane:
+  policy_enabled: true
+  policy_path: "./data/policy.json"
+  config_state_path: "./data/config_state.json"
+  config_commands_path: "./data/config_commands.jsonl"
+  mtls_enabled: false
+  tls_cert_path: "./secrets/node.crt"
+  tls_key_path: "./secrets/node.key"
+  tls_ca_path: "./secrets/ca.crt"
+  artifact_manifest_path: "./data/artifacts.json"
 
 observability:
   metrics: true

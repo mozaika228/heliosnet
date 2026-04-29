@@ -7,12 +7,14 @@ from core.service import BaseService
 
 
 class CommandCenter(BaseService):
-    def __init__(self, config, metrics, energy, model_registry):
+    def __init__(self, config, metrics, energy, model_registry, policy=None, config_consensus=None):
         super().__init__("command_center")
         self.config = config
         self.metrics = metrics
         self.energy = energy
         self.model_registry = model_registry
+        self.policy = policy
+        self.config_consensus = config_consensus
         dist_cfg = getattr(config, "distributed", {})
         self._cmd_path = Path(dist_cfg.get("operator_commands_path", "./data/operator_commands.jsonl"))
         self._cmd_path.parent.mkdir(parents=True, exist_ok=True)
@@ -41,6 +43,9 @@ class CommandCenter(BaseService):
 
     def _apply(self, cmd: dict) -> None:
         action = str(cmd.get("action", "")).lower()
+        actor = str(cmd.get("actor", "local_operator"))
+        if self.policy is not None and not self.policy.allow(actor, action):
+            return
         if action == "set_battery":
             percent = int(cmd.get("percent", 50))
             self.energy.update_battery(percent)
@@ -66,3 +71,6 @@ class CommandCenter(BaseService):
                 self.model_registry.set_shadow(version)
         elif action == "model_shadow_off":
             self.model_registry.clear_shadow()
+        elif action == "config_apply":
+            if self.config_consensus is not None:
+                self.config_consensus.apply_command({"action": "apply", "patch": cmd.get("patch", {})})

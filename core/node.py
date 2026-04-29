@@ -14,6 +14,8 @@ from sync.engine import SyncEngine
 from distributed.gossip import GossipNode
 from distributed.raft import RaftController
 from distributed.model_registry import ModelRegistry
+from distributed.policy import PolicyEngine
+from distributed.config_consensus import ConfigConsensusService
 from observability.metrics import Metrics
 from core.service import BaseService
 from core.audit import AuditLog
@@ -25,6 +27,7 @@ from notifier.telegram import TelegramNotifier
 from ui.server import WebUIService
 from mlops.drift import DriftMonitorService
 from mlops.evaluator import ContinuousEvalService
+from fusion.coordinator import FusionCoordinator
 
 
 class Scheduler:
@@ -66,8 +69,11 @@ class Node:
         self.audit = AuditLog(str(dist_cfg.get("audit_log_path", "./data/audit_log.jsonl")))
         self.live_state = LiveState(max_events=1000)
         self.ingest = IngestManager(self.config, self.metrics, self.energy)
+        self.fusion = FusionCoordinator(self.config, self.metrics, self.audit)
         self.gossip = GossipNode(self.config, self.metrics, self.audit)
         self.raft = RaftController(self.config, self.metrics, self.gossip, self.audit)
+        self.policy = PolicyEngine(self.config, self.metrics, self.audit)
+        self.config_consensus = ConfigConsensusService(self.config, self.metrics, self.raft, self.audit)
         self.model_registry = ModelRegistry(self.config, self.metrics, self.raft, self.audit)
         self.inference = InferenceEngine(self.config, self.metrics, self.model_registry)
         self.drift = DriftMonitorService(self.config, self.metrics, self.audit)
@@ -78,7 +84,14 @@ class Node:
         self.store = EventStore(self.config, self.metrics, self.live_state)
         self.telegram = TelegramNotifier(self.config, self.metrics)
         self.sync = SyncEngine(self.config, self.metrics, self.energy)
-        self.command_center = CommandCenter(self.config, self.metrics, self.energy, self.model_registry)
+        self.command_center = CommandCenter(
+            self.config,
+            self.metrics,
+            self.energy,
+            self.model_registry,
+            self.policy,
+            self.config_consensus,
+        )
         self.web_ui = WebUIService(self.config, self.metrics, self.live_state)
         self.continuous_eval = ContinuousEvalService(self.config, self.metrics, self.inference, self.audit)
         self.watchdog = WatchdogService(
@@ -87,6 +100,7 @@ class Node:
             {
                 "ingest": self.ingest,
                 "inference": self.inference,
+                "fusion": self.fusion,
                 "drift_monitor": self.drift,
                 "tracker": self.tracker,
                 "events": self.events,
@@ -97,6 +111,8 @@ class Node:
                 "gossip": self.gossip,
                 "raft": self.raft,
                 "model_registry": self.model_registry,
+                "policy": self.policy,
+                "config_consensus": self.config_consensus,
                 "command_center": self.command_center,
                 "web_ui": self.web_ui,
                 "continuous_eval": self.continuous_eval,
@@ -106,7 +122,8 @@ class Node:
 
         self.scheduler = Scheduler(self.config, self.metrics, self.energy)
 
-        self.ingest.set_next(self.inference)
+        self.ingest.set_next(self.fusion)
+        self.fusion.set_next(self.inference)
         self.inference.set_next(self.drift)
         self.drift.set_next(self.tracker)
         self.tracker.set_next(self.events)
@@ -117,10 +134,12 @@ class Node:
         self.telegram.set_next(self.sync)
         self.sync.set_next(self.gossip)
         self.gossip.set_next(self.raft)
-        self.raft.set_next(self.model_registry)
+        self.raft.set_next(self.config_consensus)
+        self.config_consensus.set_next(self.model_registry)
 
         self.scheduler.register(
             self.ingest,
+            self.fusion,
             self.inference,
             self.drift,
             self.tracker,
@@ -132,6 +151,8 @@ class Node:
             self.sync,
             self.gossip,
             self.raft,
+            self.policy,
+            self.config_consensus,
             self.model_registry,
             self.command_center,
             self.web_ui,

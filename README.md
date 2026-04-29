@@ -46,7 +46,14 @@ heliosnet/
 |   `-- raft.py              # Raft-like control-plane state and config log
 |                             # Leader state, terms, command proposals
 |   `-- model_registry.py    # Canary/rollback model lifecycle state
+|   `-- policy.py            # Policy engine (who can run what command)
+|   `-- config_consensus.py  # Config apply log + consensus epoch state
 |   `-- security.py          # HMAC signatures for control/messages
+|   `-- zero_trust.py        # mTLS readiness + artifact hash verification
+|
+|-- fusion/
+|   `-- coordinator.py       # Multi-sensor sync/fusion (RGB/thermal baseline)
+|   `-- geo.py               # Pixel-to-world approximation helpers
 |
 |-- sync/
 |   `-- engine.py            # Offline-first sync queue + idempotent delivery
@@ -252,6 +259,29 @@ mlops:
 Benchmark row format (`edge_benchmark.jsonl`):
 ```json
 {"image":"./data/bench/frame_001.jpg","expected_count":1,"expected_class":0}
+```
+
+### 12.3 Fusion + Distributed control plane
+`config/config.yaml`:
+```yaml
+fusion:
+  enabled: true
+  strategy: "late"
+  sync_window_ms: 120
+  sources:
+    src-00: {sensor: "rgb"}
+    src-01: {sensor: "thermal"}
+
+control_plane:
+  policy_enabled: true
+  policy_path: "./data/policy.json"
+  config_commands_path: "./data/config_commands.jsonl"
+  mtls_enabled: false
+```
+
+Operator command with policy + consensus:
+```json
+{"actor":"local_operator","action":"config_apply","patch":{"inference":{"conf":0.55}}}
 ```
 
 ### 13. Custom classes (your dataset)
