@@ -17,6 +17,9 @@ from distributed.model_registry import ModelRegistry
 from distributed.policy import PolicyEngine
 from distributed.config_consensus import ConfigConsensusService
 from distributed.zero_trust_service import ZeroTrustService
+from distributed.attestation import RemoteAttestationService
+from distributed.provenance import ProvenanceVerifierService
+from distributed.mtls_transport import MTLSControlTransport
 from observability.metrics import Metrics
 from core.service import BaseService
 from core.audit import AuditLog
@@ -30,6 +33,8 @@ from ui.server import WebUIService
 from mlops.drift import DriftMonitorService
 from mlops.evaluator import ContinuousEvalService
 from fusion.coordinator import FusionCoordinator
+from simulation.sensor_sim import SensorSimulator
+from simulation.incidents import SyntheticIncidentGenerator
 
 
 class Scheduler:
@@ -71,12 +76,16 @@ class Node:
         self.audit = AuditLog(str(dist_cfg.get("audit_log_path", "./data/audit_log.jsonl")))
         self.live_state = LiveState(max_events=1000)
         self.ingest = IngestManager(self.config, self.metrics, self.energy)
+        self.sensor_sim = SensorSimulator(self.config, self.metrics, self.audit)
         self.fusion = FusionCoordinator(self.config, self.metrics, self.audit)
         self.gossip = GossipNode(self.config, self.metrics, self.audit)
         self.raft = RaftController(self.config, self.metrics, self.gossip, self.audit)
         self.policy = PolicyEngine(self.config, self.metrics, self.audit)
         self.config_consensus = ConfigConsensusService(self.config, self.metrics, self.raft, self.audit)
         self.zero_trust = ZeroTrustService(self.config, self.metrics, self.audit)
+        self.attestation = RemoteAttestationService(self.config, self.metrics, self.audit)
+        self.provenance = ProvenanceVerifierService(self.config, self.metrics, self.audit)
+        self.mtls_transport = MTLSControlTransport(self.config, self.metrics, self.audit)
         self.model_registry = ModelRegistry(self.config, self.metrics, self.raft, self.audit)
         self.inference = InferenceEngine(self.config, self.metrics, self.model_registry)
         self.drift = DriftMonitorService(self.config, self.metrics, self.audit)
@@ -104,6 +113,9 @@ class Node:
             self.live_state,
             self.audit,
         )
+        self.synthetic_incidents = SyntheticIncidentGenerator(
+            self.config, self.metrics, self.live_state, self.audit
+        )
         self.web_ui = WebUIService(self.config, self.metrics, self.live_state)
         self.continuous_eval = ContinuousEvalService(self.config, self.metrics, self.inference, self.audit)
         self.watchdog = WatchdogService(
@@ -126,8 +138,12 @@ class Node:
                 "policy": self.policy,
                 "config_consensus": self.config_consensus,
                 "zero_trust": self.zero_trust,
+                "attestation": self.attestation,
+                "provenance": self.provenance,
+                "mtls_transport": self.mtls_transport,
                 "command_center": self.command_center,
                 "mission_planner": self.mission,
+                "synthetic_incidents": self.synthetic_incidents,
                 "web_ui": self.web_ui,
                 "continuous_eval": self.continuous_eval,
             },
@@ -136,6 +152,7 @@ class Node:
 
         self.scheduler = Scheduler(self.config, self.metrics, self.energy)
 
+        self.sensor_sim.set_next(self.fusion)
         self.ingest.set_next(self.fusion)
         self.fusion.set_next(self.inference)
         self.inference.set_next(self.drift)
@@ -153,6 +170,7 @@ class Node:
 
         self.scheduler.register(
             self.ingest,
+            self.sensor_sim,
             self.fusion,
             self.inference,
             self.drift,
@@ -168,9 +186,13 @@ class Node:
             self.policy,
             self.config_consensus,
             self.zero_trust,
+            self.attestation,
+            self.provenance,
+            self.mtls_transport,
             self.model_registry,
             self.command_center,
             self.mission,
+            self.synthetic_incidents,
             self.web_ui,
             self.continuous_eval,
             self.watchdog,

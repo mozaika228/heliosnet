@@ -111,6 +111,16 @@ control_plane:
   artifact_manifest_path: "./data/artifacts.json"
   rotation_state_path: "./data/key_rotation.json"
   key_rotation_interval_sec: 86400
+  mtls_host: "0.0.0.0"
+  mtls_port: 9443
+  attestation_enabled: true
+  attestation_nonce_path: "./data/attestation_nonce.txt"
+  attestation_report_path: "./data/attestation_report.json"
+  attestation_interval_sec: 60
+  boot_chain_path: "./data/boot_chain.json"
+  provenance_enabled: true
+  bundle_manifest_path: "./data/bundles.json"
+  provenance_interval_sec: 60
 
 observability:
   metrics: true
@@ -165,6 +175,20 @@ mission:
   slo_weight: 2.0
   fall_weight: 2.5
   drift_weight: 1.5
+
+simulation:
+  enabled: false
+  fps: 5
+  frame_size: [640, 480]
+  weather: "clear"       # clear | rain | fog
+  noise: 0.02
+  interference: 0.0
+  sources:
+    - "sim-cam-00"
+  incidents:
+    enabled: false
+    scenario_path: "./data/sim_incidents.jsonl"
+    interval_sec: 10
 
 energy:
   simulated_percent: 55

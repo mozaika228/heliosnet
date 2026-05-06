@@ -51,10 +51,18 @@ heliosnet/
 |   `-- security.py          # HMAC signatures for control/messages
 |   `-- zero_trust.py        # mTLS readiness + artifact hash verification
 |   `-- zero_trust_service.py# Key rotation + artifact verification loop
+|   `-- mtls_transport.py    # mTLS control transport (TCP)
+|   `-- attestation.py       # Remote attestation report loop
+|   `-- provenance.py        # Signed bundle provenance verification
 |
 |-- fusion/
 |   `-- coordinator.py       # Multi-sensor sync/fusion (RGB/thermal baseline)
 |   `-- geo.py               # Pixel-to-world approximation helpers
+|
+|-- simulation/
+|   `-- sensor_sim.py        # Digital twin sensor/weather/noise simulator
+|   `-- incidents.py         # Synthetic incident generation
+|   `-- hil_sil.py           # HIL/SIL regression gate script
 |
 |-- sync/
 |   `-- engine.py            # Offline-first sync queue + idempotent delivery
@@ -327,6 +335,40 @@ control_plane:
 Operator command with policy + consensus:
 ```json
 {"actor":"local_operator","action":"config_apply","patch":{"inference":{"conf":0.55}}}
+```
+
+### 12.6 Digital twin + simulation
+```yaml
+simulation:
+  enabled: true
+  fps: 5
+  frame_size: [640, 480]
+  weather: "rain"
+  noise: 0.03
+  interference: 0.1
+  sources: ["sim-cam-00"]
+  incidents:
+    enabled: true
+    scenario_path: "./data/sim_incidents.jsonl"
+    interval_sec: 10
+```
+
+Run HIL/SIL gate:
+```bash
+python -m simulation.hil_sil --incidents ./data/incidents --max_p95_ms 500 --require_alert FALL_ALERT
+```
+
+### 12.7 Security/Defense hardening
+```yaml
+control_plane:
+  mtls_enabled: true
+  tls_cert_path: "./secrets/node.crt"
+  tls_key_path: "./secrets/node.key"
+  tls_ca_path: "./secrets/ca.crt"
+  attestation_enabled: true
+  boot_chain_path: "./data/boot_chain.json"
+  provenance_enabled: true
+  bundle_manifest_path: "./data/bundles.json"
 ```
 
 ### 13. Custom classes (your dataset)

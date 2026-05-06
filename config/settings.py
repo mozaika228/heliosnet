@@ -34,6 +34,8 @@ class Config:
     safety: dict
     mlops: dict
     mission: dict
+    control_plane: dict
+    simulation: dict
     energy: EnergyConfig
     runtime: dict
 
@@ -69,6 +71,8 @@ def load_config(path: str) -> Config:
         safety=data.get("safety", {}),
         mlops=data.get("mlops", {}),
         mission=data.get("mission", {}),
+        control_plane=data.get("control_plane", {}),
+        simulation=data.get("simulation", {}),
         energy=energy_cfg,
         runtime=data.get("runtime", {}),
     )
