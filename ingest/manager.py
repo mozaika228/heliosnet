@@ -179,6 +179,7 @@ class IngestManager(BaseService):
         self._resize_hw = None
         self._manual_resize_hw = None
         self._manual_fps_cap = 0
+        self._target_sources: set[str] = set()
         self._last_profile = None
 
     def handle(self, item) -> None:
@@ -193,9 +194,9 @@ class IngestManager(BaseService):
             self._tick_sync()
             return
         tried = 0
-        while tried < len(self._sources):
-            src = self._sources[self._rr]
-            self._rr = (self._rr + 1) % len(self._sources)
+        order = self._ordered_sources()
+        while tried < len(order):
+            src = order[(self._rr + tried) % len(order)]
             tried += 1
             item = src.read()
             if item is None:
@@ -204,6 +205,7 @@ class IngestManager(BaseService):
                 item["frame"] = cv2.resize(item["frame"], self._resize_hw, interpolation=cv2.INTER_LINEAR)
             self.metrics.inc_frame(item.get("source_id", "source"))
             self.push(item)
+            self._rr = (self._rr + tried) % max(1, len(order))
             return
         time.sleep(self._idle_sleep_ms / 1000.0)
 
@@ -267,6 +269,9 @@ class IngestManager(BaseService):
         self._manual_resize_hw = resolution
         self._apply_overrides()
 
+    def set_target_sources(self, source_ids: list[str] | None = None) -> None:
+        self._target_sources = set(source_ids or [])
+
     def _apply_overrides(self) -> None:
         if self._manual_fps_cap > 0:
             for src in self._sources:
@@ -276,3 +281,10 @@ class IngestManager(BaseService):
                     src.cfg.max_fps = min(src.cfg.max_fps, self._manual_fps_cap)
         if self._manual_resize_hw is not None:
             self._resize_hw = self._manual_resize_hw
+
+    def _ordered_sources(self) -> list[BaseSource]:
+        if not self._target_sources:
+            return self._sources
+        preferred = [s for s in self._sources if s.cfg.source_id in self._target_sources]
+        rest = [s for s in self._sources if s.cfg.source_id not in self._target_sources]
+        return preferred + rest

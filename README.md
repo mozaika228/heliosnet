@@ -288,6 +288,21 @@ events:
 Detected gestures: `hands_up`, `left_hand_up`, `right_hand_up`, `arms_crossed`, `t_pose`.
 Each detected gesture emits `GESTURE_ALERT`.
 
+### 12.5 Mission AI planner
+The planner decides what node should do next based on risk, battery and link quality.
+```yaml
+mission:
+  enabled: true
+  retask_every_sec: 5
+  top_k_sources: 1
+  alert_weight: 1.0
+  slo_weight: 2.0
+  fall_weight: 2.5
+  drift_weight: 1.5
+```
+
+Planner outputs explainable `MISSION_ACTION` events with reasons and selected target sources.
+
 ### 12.3 Fusion + Distributed control plane
 `config/config.yaml`:
 ```yaml

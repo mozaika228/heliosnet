@@ -43,20 +43,23 @@ class EventStore(BaseService):
         path = Path(self._csv_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         exists = path.exists()
+        fieldnames = [
+            "name",
+            "ts",
+            "source_id",
+            "group_id",
+            "payload_json",
+        ]
         with path.open("a", newline="", encoding="utf-8") as f:
-            writer = None
+            writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+            if not exists:
+                writer.writeheader()
             for evt in events:
                 flat = {
                     "name": evt.get("name"),
                     "ts": evt.get("ts"),
                     "source_id": evt.get("source_id"),
                     "group_id": evt.get("group_id"),
+                    "payload_json": json.dumps(evt.get("payload", {}) or {}, ensure_ascii=True),
                 }
-                payload = evt.get("payload", {}) or {}
-                for k, v in payload.items():
-                    flat[f"payload_{k}"] = v
-                if writer is None:
-                    writer = csv.DictWriter(f, fieldnames=list(flat.keys()))
-                    if not exists:
-                        writer.writeheader()
                 writer.writerow(flat)

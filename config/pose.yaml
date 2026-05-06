@@ -1,4 +1,4 @@
-node_id: "edge-001"
+node_id: "edge-pose-001"
 
 ingest:
   sources:
@@ -6,31 +6,19 @@ ingest:
   max_fps: 15
   loop_files: true
   idle_sleep_ms: 10
-  sync: true
+  sync: false
   sync_timeout_ms: 200
-
-fusion:
-  enabled: false
-  strategy: "late"   # late | early_rgb_thermal
-  sync_window_ms: 120
-  sources:
-    src-00:
-      sensor: "rgb"
-    src-01:
-      sensor: "thermal"
 
 inference:
   backend: "ultralytics"
-  model: "C:/Users/Admin/Desktop/model/yolo11n.pt"
+  model: "C:/Users/Admin/Desktop/model/yolo11n-pose.pt"
   device: "cpu"
-  conf: 0.5
-  classes: []
-  preview: false
-  preview_window: "HeliosNet"
-  batch_size: 2
+  conf: 0.4
+  classes: [0]
+  preview: true
+  preview_window: "HeliosNet-Pose"
+  batch_size: 1
   batch_timeout_ms: 20
-  shadow_enabled: true
-  shadow_sample_rate: 10
   phone_id_enabled: false
   phone_catalog_dir: "./data/phone_catalog"
   phone_min_score: 0.45
@@ -48,8 +36,8 @@ tracker:
   lost_track_buffer: 30
   frame_rate: 30
   minimum_consecutive_frames: 1
-  preview: true
-  preview_window: "HeliosNet"
+  preview: false
+  preview_window: "HeliosNet-Track"
 
 events:
   rules:
@@ -78,7 +66,7 @@ sync:
   acked_path: "./data/sync_acked.txt"
 
 distributed:
-  enabled: true
+  enabled: false
   bind_host: "0.0.0.0"
   bind_port: 7946
   shared_secret: ""
@@ -99,19 +87,6 @@ distributed:
   rollback_flag_path: "./data/model_rollback.flag"
   audit_log_path: "./data/audit_log.jsonl"
 
-control_plane:
-  policy_enabled: true
-  policy_path: "./data/policy.json"
-  config_state_path: "./data/config_state.json"
-  config_commands_path: "./data/config_commands.jsonl"
-  mtls_enabled: false
-  tls_cert_path: "./secrets/node.crt"
-  tls_key_path: "./secrets/node.key"
-  tls_ca_path: "./secrets/ca.crt"
-  artifact_manifest_path: "./data/artifacts.json"
-  rotation_state_path: "./data/key_rotation.json"
-  key_rotation_interval_sec: 86400
-
 observability:
   metrics: true
   metrics_port: 9090
@@ -122,49 +97,6 @@ observability:
   telegram_bot_token: ""
   telegram_chat_id: ""
   telegram_min_interval_sec: 5
-
-safety:
-  slo:
-    max_e2e_latency_ms_p95: 400
-    min_uptime_percent: 99.0
-    max_miss_rate: 0.25
-    window_size: 200
-    breach_cooldown_sec: 15
-  watchdog:
-    enabled: true
-    stale_heartbeat_sec: 5
-    action_cooldown_sec: 5
-    degraded_fps_cap: 8
-    safe_fps_cap: 4
-    degraded_resolution: "640x480"
-    safe_resolution: "416x416"
-  replay:
-    enabled: true
-    incidents_path: "./data/incidents"
-    image_quality: 85
-
-mlops:
-  drift:
-    enabled: true
-    ema_alpha: 0.03
-    data_threshold: 0.18
-    concept_threshold: 0.15
-    event_cooldown_sec: 30
-    state_path: "./data/drift_state.json"
-  evaluation:
-    enabled: false
-    benchmark_path: "./data/edge_benchmark.jsonl"
-    interval_sec: 600
-    max_cases: 20
-
-mission:
-  enabled: true
-  retask_every_sec: 5
-  top_k_sources: 1
-  alert_weight: 1.0
-  slo_weight: 2.0
-  fall_weight: 2.5
-  drift_weight: 1.5
 
 energy:
   simulated_percent: 55
@@ -196,3 +128,12 @@ energy:
 
 runtime:
   tick_ms: 10
+
+mission:
+  enabled: true
+  retask_every_sec: 5
+  top_k_sources: 1
+  alert_weight: 1.0
+  slo_weight: 2.0
+  fall_weight: 2.5
+  drift_weight: 1.5

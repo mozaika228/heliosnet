@@ -33,6 +33,7 @@ class Config:
     observability: dict
     safety: dict
     mlops: dict
+    mission: dict
     energy: EnergyConfig
     runtime: dict
 
@@ -67,6 +68,7 @@ def load_config(path: str) -> Config:
         observability=data.get("observability", {}),
         safety=data.get("safety", {}),
         mlops=data.get("mlops", {}),
+        mission=data.get("mission", {}),
         energy=energy_cfg,
         runtime=data.get("runtime", {}),
     )

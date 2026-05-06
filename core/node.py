@@ -22,6 +22,7 @@ from core.service import BaseService
 from core.audit import AuditLog
 from core.live_state import LiveState
 from core.command_center import CommandCenter
+from core.mission import MissionPlanner
 from core.safety import IncidentRecorder, SLOMonitor
 from core.watchdog import WatchdogService
 from notifier.telegram import TelegramNotifier
@@ -94,6 +95,15 @@ class Node:
             self.policy,
             self.config_consensus,
         )
+        self.mission = MissionPlanner(
+            self.config,
+            self.metrics,
+            self.energy,
+            self.ingest,
+            self.gossip,
+            self.live_state,
+            self.audit,
+        )
         self.web_ui = WebUIService(self.config, self.metrics, self.live_state)
         self.continuous_eval = ContinuousEvalService(self.config, self.metrics, self.inference, self.audit)
         self.watchdog = WatchdogService(
@@ -117,6 +127,7 @@ class Node:
                 "config_consensus": self.config_consensus,
                 "zero_trust": self.zero_trust,
                 "command_center": self.command_center,
+                "mission_planner": self.mission,
                 "web_ui": self.web_ui,
                 "continuous_eval": self.continuous_eval,
             },
@@ -159,6 +170,7 @@ class Node:
             self.zero_trust,
             self.model_registry,
             self.command_center,
+            self.mission,
             self.web_ui,
             self.continuous_eval,
             self.watchdog,
